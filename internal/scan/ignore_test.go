@@ -40,3 +40,23 @@ func TestLoadIgnoreMatcherCanKeepVendorWhenRequested(t *testing.T) {
 		t.Fatalf("expected vendor/ not to be ignored when IncludeVendor is true")
 	}
 }
+
+func TestLoadIgnoreMatcherHonorsAnchoredRule(t *testing.T) {
+	root := t.TempDir()
+	content := "/build\n"
+	if err := os.WriteFile(filepath.Join(root, ".projcompilerignore"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write ignore file: %v", err)
+	}
+
+	matcher, err := LoadIgnoreMatcher(root, false)
+	if err != nil {
+		t.Fatalf("LoadIgnoreMatcher returned error: %v", err)
+	}
+
+	if ignored, _ := matcher.ShouldIgnore("build", true); !ignored {
+		t.Fatalf("expected anchored root build path to be ignored")
+	}
+	if ignored, _ := matcher.ShouldIgnore("sub/build", true); ignored {
+		t.Fatalf("expected anchored rule not to ignore nested path")
+	}
+}

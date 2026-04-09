@@ -62,3 +62,37 @@ func TestCompilerStopsOnBlockingQuestions(t *testing.T) {
 		t.Fatalf("expected blocking questions to be preserved")
 	}
 }
+
+func TestCompilerDefaultsOutputLanguageToEnglish(t *testing.T) {
+	compiler := NewCompiler(config.Config{})
+
+	bundle, err := compiler.CompilePrompt(context.Background(), spec.ProjectSpec{
+		Goal: "Build a local CLI",
+	})
+	if err != nil {
+		t.Fatalf("CompilePrompt returned error: %v", err)
+	}
+
+	if got, want := bundle.OutputLanguage, "english"; got != want {
+		t.Fatalf("OutputLanguage = %q, want %q", got, want)
+	}
+	if !bundle.Ready() {
+		t.Fatalf("expected prompt bundle to be ready")
+	}
+}
+
+func TestCompilerNotesWhenSpecHasNoPromptWorthySections(t *testing.T) {
+	compiler := NewCompiler(config.Config{})
+
+	bundle, err := compiler.CompilePrompt(context.Background(), spec.ProjectSpec{})
+	if err != nil {
+		t.Fatalf("CompilePrompt returned error: %v", err)
+	}
+
+	if bundle.PromptText != "" {
+		t.Fatalf("expected no prompt text, got %q", bundle.PromptText)
+	}
+	if len(bundle.Notes) == 0 || !strings.Contains(bundle.Notes[0], "No prompt-worthy sections") {
+		t.Fatalf("expected explanatory note, got %#v", bundle.Notes)
+	}
+}

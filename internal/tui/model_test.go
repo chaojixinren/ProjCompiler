@@ -59,3 +59,62 @@ func TestModelPromptPreviewScrollRespectsBounds(t *testing.T) {
 		t.Fatalf("expected pgup to clamp scroll back to zero, got %d", next.promptScroll)
 	}
 }
+
+func TestModelIgnoresMessagesFromStaleRun(t *testing.T) {
+	model := NewModel(Services{})
+	model.activeRunID = 3
+	model.state = StateScanning
+	model.loading = true
+
+	updated, _ := model.Update(scanFinishedMsg{
+		RunID: 2,
+		Facts: spec.RepoFacts{
+			Docs: []spec.DocumentFact{{Path: "README.md"}},
+		},
+	})
+	next := updated.(Model)
+
+	if next.state != StateScanning {
+		t.Fatalf("state = %q, want %q", next.state, StateScanning)
+	}
+	if !next.loading {
+		t.Fatalf("expected stale message not to mutate loading state")
+	}
+	if len(next.facts.Docs) != 0 {
+		t.Fatalf("expected stale message not to replace facts, got %#v", next.facts)
+	}
+}
+
+func TestModelCancelsScanningBackToInputState(t *testing.T) {
+	model := NewModel(Services{})
+	model.state = StateScanning
+	model.activeRunID = 4
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	next := updated.(Model)
+
+	if next.state != StatePathInput {
+		t.Fatalf("state = %q, want %q", next.state, StatePathInput)
+	}
+	if next.activeRunID != 5 {
+		t.Fatalf("activeRunID = %d, want %d", next.activeRunID, 5)
+	}
+	if len(next.logs) == 0 || !strings.Contains(next.logs[len(next.logs)-1], "Cancelled current run.") {
+		t.Fatalf("expected cancel log, got %#v", next.logs)
+	}
+}
+
+func TestModelSpecSummaryEnterTransitionsToPromptPreviewStart(t *testing.T) {
+	model := NewModel(Services{})
+	model.state = StateSpecSummary
+	model.activeRunID = 2
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next := updated.(Model)
+	if cmd == nil {
+		t.Fatalf("expected compile command")
+	}
+	if next.state != StateSpecSummary {
+		t.Fatalf("expected state to remain spec summary until start message is processed, got %q", next.state)
+	}
+}

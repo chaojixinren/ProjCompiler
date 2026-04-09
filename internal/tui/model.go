@@ -56,11 +56,11 @@ func NewModel(services Services, options ...Option) Model {
 
 func NewProgram(services Services, options ...Option) *tea.Program {
 	model := NewModel(services, options...)
-	return tea.NewProgram(model)
+	return tea.NewProgram(model, tea.WithAltScreen())
 }
 
 func (m Model) Init() tea.Cmd {
-	return nil
+	return tea.WindowSize()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

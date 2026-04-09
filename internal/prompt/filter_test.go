@@ -74,3 +74,31 @@ func TestRenderPromptWrapsSectionsWithStableBoilerplate(t *testing.T) {
 		t.Fatalf("prompt is missing pruning reminder: %q", text)
 	}
 }
+
+func TestFilterPromptSectionsDeduplicatesConstraintAndShapeLines(t *testing.T) {
+	projectSpec := spec.ProjectSpec{
+		Goal: "Build a deterministic CLI.",
+		CriticalConstraints: []spec.Constraint{
+			{Text: "Do not emit tool-specific command wrappers"},
+			{Text: "Do not emit tool-specific command wrappers."},
+		},
+		ImplementationShape: spec.ImplementationShape{
+			CoreModules: []spec.ModuleSpec{
+				{Name: "scanner", Responsibility: "Collect repository facts"},
+				{Name: "scanner", Responsibility: "Collect repository facts."},
+			},
+		},
+	}
+
+	sections := filterPromptSections(projectSpec)
+	if len(sections) < 3 {
+		t.Fatalf("expected goal, constraint, and implementation sections, got %#v", sections)
+	}
+
+	if got := strings.Count(sections[1].Content, "Do not emit tool-specific command wrappers."); got != 1 {
+		t.Fatalf("expected deduplicated constraint line, got %q", sections[1].Content)
+	}
+	if got := strings.Count(sections[2].Content, "scanner: Collect repository facts."); got != 1 {
+		t.Fatalf("expected deduplicated implementation line, got %q", sections[2].Content)
+	}
+}

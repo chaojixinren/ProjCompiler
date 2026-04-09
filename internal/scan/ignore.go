@@ -76,7 +76,7 @@ func (m *IgnoreMatcher) addBuiltins(includeVendor bool) {
 		".gopath/",
 		"node_modules/",
 		"dist/",
-		"build/",
+		"/build/",
 		"bin/",
 		".DS_Store",
 	}

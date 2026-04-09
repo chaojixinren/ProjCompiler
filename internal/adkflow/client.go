@@ -38,6 +38,13 @@ type OpenAICompatibleClient struct {
 	httpClient *http.Client
 }
 
+var (
+	ErrCompletionClientNotConfigured = errors.New("completion client is not configured")
+	ErrCompletionBaseURLRequired     = errors.New("completion base URL is required")
+	ErrCompletionAPIKeyRequired      = errors.New("completion API key is required")
+	ErrCompletionModelRequired       = errors.New("completion model is required")
+)
+
 func NewCompletionClient(cfg config.Config) CompletionClient {
 	if !cfg.HasModelConfig() {
 		return nil
@@ -53,8 +60,20 @@ func NewCompletionClient(cfg config.Config) CompletionClient {
 }
 
 func (c *OpenAICompatibleClient) Complete(ctx context.Context, messages []Message, temperature float32) (CompletionResult, error) {
+	if c == nil {
+		return CompletionResult{}, ErrCompletionClientNotConfigured
+	}
 	if len(messages) == 0 {
 		return CompletionResult{}, errors.New("completion request requires at least one message")
+	}
+	if strings.TrimSpace(c.baseURL) == "" {
+		return CompletionResult{}, ErrCompletionBaseURLRequired
+	}
+	if strings.TrimSpace(c.apiKey) == "" {
+		return CompletionResult{}, ErrCompletionAPIKeyRequired
+	}
+	if strings.TrimSpace(c.modelName) == "" {
+		return CompletionResult{}, ErrCompletionModelRequired
 	}
 
 	payload := chatCompletionsRequest{
@@ -123,25 +142,46 @@ func extractChoiceText(content any) string {
 	case string:
 		return strings.TrimSpace(value)
 	case []any:
-		var builder strings.Builder
-		for _, item := range value {
-			part, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			text, _ := part["text"].(string)
-			if strings.TrimSpace(text) == "" {
-				continue
-			}
-			if builder.Len() > 0 {
-				builder.WriteString("\n")
-			}
-			builder.WriteString(strings.TrimSpace(text))
-		}
-		return strings.TrimSpace(builder.String())
+		return strings.TrimSpace(joinContentParts(value))
+	case map[string]any:
+		return strings.TrimSpace(extractTextPart(value))
 	default:
 		return ""
 	}
+}
+
+func joinContentParts(parts []any) string {
+	var builder strings.Builder
+	for _, item := range parts {
+		part, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		text := extractTextPart(part)
+		if text == "" {
+			continue
+		}
+		if builder.Len() > 0 {
+			builder.WriteString("\n")
+		}
+		builder.WriteString(text)
+	}
+	return builder.String()
+}
+
+func extractTextPart(part map[string]any) string {
+	if text, _ := part["text"].(string); strings.TrimSpace(text) != "" {
+		return strings.TrimSpace(text)
+	}
+	if nested, _ := part["content"].(string); strings.TrimSpace(nested) != "" {
+		return strings.TrimSpace(nested)
+	}
+	if nested, ok := part["text"].(map[string]any); ok {
+		if value, _ := nested["value"].(string); strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func firstNonEmpty(values ...string) string {

@@ -45,3 +45,37 @@ func TestDocsProbeToolExtractsSummaryConstraintsAndMissingRootReadme(t *testing.
 		t.Fatalf("expected missing root README signal, got %#v", output.Signals)
 	}
 }
+
+func TestDocsProbeToolPrioritizesRootReadmeWhenMaxDocsIsLimited(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "docs", "usage.md"), []byte("# Usage\nSecondary doc.\n"), 0o644); err != nil {
+		t.Fatalf("write docs/usage.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Root\nPrimary doc.\n"), 0o644); err != nil {
+		t.Fatalf("write README.md: %v", err)
+	}
+
+	output, err := NewDocsProbeTool().Execute(context.Background(), DocsProbeInput{
+		RootPath:       root,
+		CandidatePaths: []string{"docs/usage.md", "README.md"},
+		MaxDocs:        1,
+		MaxBytes:       1 << 20,
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if len(output.Docs) != 1 {
+		t.Fatalf("expected 1 doc, got %d", len(output.Docs))
+	}
+	if got, want := output.Docs[0].Path, "README.md"; got != want {
+		t.Fatalf("doc path = %q, want %q", got, want)
+	}
+	if len(output.Signals) != 0 {
+		t.Fatalf("expected no missing root README signal, got %#v", output.Signals)
+	}
+}

@@ -1,8 +1,6 @@
 package scan
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -124,10 +122,14 @@ func snippetForFile(rootPath, relPath, purpose string, maxLines int, maxBytes in
 }
 
 func readLines(data []byte) []string {
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	lines := make([]string, 0, 128)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	if text == "" {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
 	}
 	return lines
 }

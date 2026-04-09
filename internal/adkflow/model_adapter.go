@@ -16,6 +16,8 @@ type OpenAICompatibleLLM struct {
 	client    CompletionClient
 }
 
+var ErrNilLLMRequest = errors.New("llm request is nil")
+
 func NewOpenAICompatibleLLM(modelName string, client CompletionClient) *OpenAICompatibleLLM {
 	return &OpenAICompatibleLLM{
 		modelName: strings.TrimSpace(modelName),
@@ -33,6 +35,10 @@ func (m *OpenAICompatibleLLM) GenerateContent(ctx context.Context, req *adkmodel
 			yield(nil, errors.New("llm client is not configured"))
 			return
 		}
+		if req == nil {
+			yield(nil, ErrNilLLMRequest)
+			return
+		}
 
 		messages := make([]Message, 0, len(req.Contents))
 		for _, content := range req.Contents {
@@ -48,6 +54,10 @@ func (m *OpenAICompatibleLLM) GenerateContent(ctx context.Context, req *adkmodel
 				Role:    role,
 				Content: text,
 			})
+		}
+		if len(messages) == 0 {
+			yield(nil, errors.New("llm request has no text content"))
+			return
 		}
 
 		temperature := float32(0.1)

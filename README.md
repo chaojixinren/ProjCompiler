@@ -185,7 +185,7 @@ ProjCompiler/
 
 ## 相关文档
 
-- [MVP-架构图.md](./MVP-%E6%9E%B6%E6%9E%84%E5%9B%BE.md)
-- [MVP-模块任务设计.md](./MVP-%E6%A8%A1%E5%9D%97%E4%BB%BB%E5%8A%A1%E8%AE%BE%E8%AE%A1.md)
-- [子Agent任务分发与设计.md](./%E5%AD%90Agent%E4%BB%BB%E5%8A%A1%E5%88%86%E5%8F%91%E4%B8%8E%E8%AE%BE%E8%AE%A1.md)
-- [MVP-实现说明.md](./MVP-%E5%AE%9E%E7%8E%B0%E8%AF%B4%E6%98%8E.md)
+- [MVP-架构图.md](./docs/MVP-架构图.md)
+- [MVP-模块任务设计.md](./docs/MVP-模块任务设计.md)
+- [子Agent任务分发与设计.md](./docs/子Agent任务分发与设计.md)
+- [MVP-实现说明.md](./docs/MVP-实现说明.md)

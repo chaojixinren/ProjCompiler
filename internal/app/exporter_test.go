@@ -66,3 +66,38 @@ func TestFileExporterResolveOutputPathKeepsAbsolutePath(t *testing.T) {
 		t.Fatalf("resolved path = %q, want %q", got, absPath)
 	}
 }
+
+func TestFileExporterUsesDefaultPathWhenOutputPathIsBlank(t *testing.T) {
+	dir := t.TempDir()
+	exporter := NewFileExporter(config.Config{
+		Paths: config.Paths{WorkingDir: dir},
+		Output: config.OutputConfig{
+			PromptFile: "prompt.txt",
+		},
+	})
+
+	path, err := exporter.ExportPrompt(context.Background(), spec.PromptBundle{
+		PromptText: "Build the project",
+	}, "   ")
+	if err != nil {
+		t.Fatalf("ExportPrompt returned error: %v", err)
+	}
+
+	if got, want := path, filepath.Join(dir, "prompt.txt"); got != want {
+		t.Fatalf("export path = %q, want %q", got, want)
+	}
+}
+
+func TestFileExporterHonorsCancelledContext(t *testing.T) {
+	exporter := NewFileExporter(config.Config{
+		Paths: config.Paths{WorkingDir: t.TempDir()},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := exporter.ExportPrompt(ctx, spec.PromptBundle{PromptText: "Build the project"}, "")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}

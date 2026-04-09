@@ -37,3 +37,47 @@ func TestManifestProbeToolParsesGoModDependenciesAndHints(t *testing.T) {
 		t.Fatalf("expected go version, toolchain, and replace hints, got %d", len(output.Build.Hints))
 	}
 }
+
+func TestManifestProbeToolReturnsMissingSignalWithoutCandidates(t *testing.T) {
+	output, err := NewManifestProbeTool().Execute(context.Background(), ManifestProbeInput{
+		RootPath:       t.TempDir(),
+		CandidatePaths: nil,
+		MaxBytes:       1 << 20,
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if len(output.Signals) != 1 || output.Signals[0].Kind != "missing" {
+		t.Fatalf("expected missing manifest signal, got %#v", output.Signals)
+	}
+}
+
+func TestManifestProbeToolReportsPackageJSONParseErrorAsHint(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	output, err := NewManifestProbeTool().Execute(context.Background(), ManifestProbeInput{
+		RootPath:       root,
+		CandidatePaths: []string{"package.json"},
+		MaxBytes:       1 << 20,
+	})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if len(output.Build.Hints) == 0 {
+		t.Fatalf("expected manifest parse error hint")
+	}
+	found := false
+	for _, hint := range output.Build.Hints {
+		if hint.Key == "manifest.parse_error" && hint.Value == "package.json" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected package.json parse error hint, got %#v", output.Build.Hints)
+	}
+}
