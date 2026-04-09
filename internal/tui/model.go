@@ -19,7 +19,7 @@ type Model struct {
 	activeRunID int
 	lang        Language
 
-	pathInput  string
+	pathInput  textinput.Model
 	outputPath string
 
 	facts       spec.RepoFacts
@@ -33,6 +33,7 @@ type Model struct {
 	compilingPrompt  bool
 	exporting        bool
 	promptScroll     int
+	specScroll       int
 	lastError        string
 	lastExportedPath string
 	logs             []string
@@ -61,11 +62,19 @@ func NewModel(services Services, options ...Option) Model {
 		state:            StatePathInput,
 		outputPath:       cfg.DefaultPromptPath,
 		lang:             LangEN,
+		pathInput:        newPathInput(),
 		configInputs:     newConfigInputs("", "", ""),
 		configFocusIndex: 0,
 	}
 	model.appendLog(model.t().LogReady)
 	return model
+}
+
+func newPathInput() textinput.Model {
+	ti := textinput.New()
+	ti.Placeholder = "/path/to/project"
+	ti.Focus()
+	return ti
 }
 
 func newConfigInputs(baseURL, apiKey, model string) []textinput.Model {
@@ -274,7 +283,7 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updatePathInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEnter:
-		path := strings.TrimSpace(m.pathInput)
+		path := strings.TrimSpace(m.pathInput.Value())
 		if path == "" {
 			m.lastError = m.t().ErrPathEmpty
 			return m, nil
@@ -284,23 +293,16 @@ func (m Model) updatePathInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.lastError = m.t().ErrConfigIncomplete
 			return m, nil
 		}
-		m.pathInput = path
+		m.pathInput.SetValue(path)
 		m.resetRunState()
 		m.activeRunID++
 		m.state = StateScanning
 		return m, startScanCmd(m.activeRunID, path, m.services.Scanner)
-	case tea.KeyBackspace, tea.KeyDelete:
-		runes := []rune(m.pathInput)
-		if len(runes) > 0 {
-			m.pathInput = string(runes[:len(runes)-1])
-		}
-		return m, nil
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.pathInput += msg.String()
-			m.lastError = ""
-		}
-		return m, nil
+		var cmd tea.Cmd
+		m.pathInput, cmd = m.pathInput.Update(msg)
+		m.lastError = ""
+		return m, cmd
 	}
 }
 
@@ -317,6 +319,28 @@ func (m Model) updateScanning(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateSpecSummary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "up", "k":
+		if m.specScroll > 0 {
+			m.specScroll--
+		}
+		return m, nil
+	case "down", "j":
+		if m.specScroll < m.maxSpecScroll() {
+			m.specScroll++
+		}
+		return m, nil
+	case "pgup":
+		m.specScroll -= m.specPageSize()
+		if m.specScroll < 0 {
+			m.specScroll = 0
+		}
+		return m, nil
+	case "pgdown":
+		m.specScroll += m.specPageSize()
+		if ms := m.maxSpecScroll(); m.specScroll > ms {
+			m.specScroll = ms
+		}
+		return m, nil
 	case "enter", "g":
 		if m.loading || m.compilingPrompt || m.exporting {
 			return m, nil
@@ -423,6 +447,7 @@ func (m *Model) resetRunState() {
 	m.projectSpec = spec.ProjectSpec{}
 	m.bundle = spec.PromptBundle{}
 	m.promptScroll = 0
+	m.specScroll = 0
 	m.lastError = ""
 	m.lastExportedPath = ""
 	m.loading = false

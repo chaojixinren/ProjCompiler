@@ -9,7 +9,7 @@ import (
 
 func TestModelViewIncludesHeaderBodyFooterAndLogs(t *testing.T) {
 	model := NewModel(Services{}, WithTitle("ProjCompiler UI"))
-	model.pathInput = "/tmp/demo"
+	model.pathInput.SetValue("/tmp/demo")
 
 	view := model.View()
 

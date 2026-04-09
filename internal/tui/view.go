@@ -10,15 +10,37 @@ import (
 )
 
 func (m Model) View() string {
-	content := []string{
-		m.renderHeader(),
-		m.renderBody(),
-		m.renderFooter(),
+	header := m.renderHeader()
+	footer := m.renderFooter()
+	logs := m.renderLogs()
+	body := m.renderBody()
+
+	if bodyMax := m.bodyAvailableHeight(); bodyMax > 0 {
+		if bodyLines := strings.Split(body, "\n"); len(bodyLines) > bodyMax {
+			body = strings.Join(bodyLines[:bodyMax], "\n")
+		}
 	}
-	if logs := m.renderLogs(); logs != "" {
+
+	content := []string{header, body, footer}
+	if logs != "" {
 		content = append(content, logs)
 	}
 	return styles.page.Render(strings.Join(compact(content), "\n\n"))
+}
+
+func (m Model) bodyAvailableHeight() int {
+	if m.height <= 0 {
+		return 20
+	}
+	headerH := lipgloss.Height(m.renderHeader())
+	footerH := lipgloss.Height(m.renderFooter())
+	logsH := 0
+	if logs := m.renderLogs(); logs != "" {
+		logsH = lipgloss.Height(logs) + 2
+	}
+	gaps := 4
+	pageFrame := styles.page.GetVerticalFrameSize()
+	return max(4, m.height-headerH-footerH-logsH-gaps-pageFrame)
 }
 
 func (m Model) renderHeader() string {
@@ -142,21 +164,22 @@ func (m Model) renderPathInput() string {
 	s := m.t()
 	lw, rw := m.splitWidths()
 
-	intro := []string{
+	introStr := strings.Join([]string{
 		styles.text.Render(s.PathIntro),
 		"",
 		metricLine(s.PathExample, "/path/to/project"),
 		metricLine(s.PathDefaultExp, valueOrFallback(m.outputPath, "prompt.txt")),
-	}
+	}, "\n")
 
-	inputBody := []string{
+	inputStr := strings.Join([]string{
 		styles.muted.Render(s.PathFieldLabel),
-		styles.codeBox.Width(m.embeddedBoxWidth(styles.panel, styles.codeBox, rw)).Render("> " + valueOrFallback(m.pathInput, "")),
-	}
+		styles.codeBox.Width(m.embeddedBoxWidth(styles.panel, styles.codeBox, rw)).Render("> " + m.pathInput.View()),
+	}, "\n\n")
 
-	left := m.renderPanel(s.PathPanelInfo, strings.Join(intro, "\n"), styles.panelEmphasis, lw)
-	right := m.renderPanel(s.PathPanelInput, strings.Join(inputBody, "\n\n"), styles.panel, rw)
-	return m.renderColumns(left, right)
+	return m.renderPanelPair(
+		s.PathPanelInfo, introStr, styles.panelEmphasis, lw,
+		s.PathPanelInput, inputStr, styles.panel, rw,
+	)
 }
 
 func (m Model) renderScanning() string {
@@ -171,7 +194,7 @@ func (m Model) renderScanning() string {
 	}
 
 	leftBody := strings.Join([]string{
-		metricLine(s.ScanLabelPath, valueOrFallback(strings.TrimSpace(m.pathInput), s.NotSet)),
+		metricLine(s.ScanLabelPath, valueOrFallback(strings.TrimSpace(m.pathInput.Value()), s.NotSet)),
 		metricLine(s.ScanLabelStatus, status),
 		metricLine(s.ScanLabelPhase, phase),
 		metricLine(s.ScanLabelCancel, s.ScanCancelHint),
@@ -184,26 +207,48 @@ func (m Model) renderScanning() string {
 	})
 
 	lw, rw := m.splitWidths()
-	left := m.renderPanel(s.ScanPanelStatus, leftBody, styles.panelEmphasis, lw)
-	right := m.renderPanel(s.ScanPanelNotes, rightBody, styles.panel, rw)
-	return m.renderColumns(left, right)
+	return m.renderPanelPair(
+		s.ScanPanelStatus, leftBody, styles.panelEmphasis, lw,
+		s.ScanPanelNotes, rightBody, styles.panel, rw,
+	)
 }
 
 func (m Model) renderSpecSummary() string {
+	fullContent := m.renderSpecSummaryContent()
+	lines := strings.Split(fullContent, "\n")
+	pageSize := m.specPageSize()
+
+	if len(lines) <= pageSize {
+		return fullContent
+	}
+
+	start := clamp(m.specScroll, 0, max(0, len(lines)-pageSize))
+	end := min(len(lines), start+pageSize)
+
+	scrollIndicator := styles.muted.Render(
+		fmt.Sprintf("  ↕ %d-%d / %d", start+1, end, len(lines)),
+	)
+
+	return strings.Join(lines[start:end], "\n") + "\n" + scrollIndicator
+}
+
+func (m Model) renderSpecSummaryContent() string {
 	s := m.t()
 	lw, rw := m.splitWidths()
-	topLeft := m.renderPanel(s.SpecPanelGoal, styles.text.Render(valueOrFallback(m.projectSpec.Goal, s.SpecGoalFallback)), styles.panelEmphasis, lw)
-	topRight := m.renderPanel(s.SpecPanelTech, formatTechProfile(s, m.projectSpec.TechProfile), styles.panel, rw)
-
-	modules := m.renderPanel(s.SpecPanelModules, formatModules(s, m.projectSpec.ImplementationShape.CoreModules), styles.panel, lw)
-	flows := m.renderPanel(s.SpecPanelFlows, formatFlows(s, m.projectSpec.ImplementationShape.KeyFlows), styles.panel, rw)
-	constraints := m.renderPanel(s.SpecPanelConstraints, formatConstraints(s, m.projectSpec.CriticalConstraints), styles.panelEmphasis, lw)
-	acceptance := m.renderPanel(s.SpecPanelChecks, formatAcceptanceChecks(s, m.projectSpec.AcceptanceChecks), styles.panel, rw)
 
 	panels := []string{
-		m.renderColumns(topLeft, topRight),
-		m.renderColumns(modules, flows),
-		m.renderColumns(constraints, acceptance),
+		m.renderPanelPair(
+			s.SpecPanelGoal, styles.text.Render(valueOrFallback(m.projectSpec.Goal, s.SpecGoalFallback)), styles.panelEmphasis, lw,
+			s.SpecPanelTech, formatTechProfile(s, m.projectSpec.TechProfile), styles.panel, rw,
+		),
+		m.renderPanelPair(
+			s.SpecPanelModules, formatModules(s, m.projectSpec.ImplementationShape.CoreModules), styles.panel, lw,
+			s.SpecPanelFlows, formatFlows(s, m.projectSpec.ImplementationShape.KeyFlows), styles.panel, rw,
+		),
+		m.renderPanelPair(
+			s.SpecPanelConstraints, formatConstraints(s, m.projectSpec.CriticalConstraints), styles.panelEmphasis, lw,
+			s.SpecPanelChecks, formatAcceptanceChecks(s, m.projectSpec.AcceptanceChecks), styles.panel, rw,
+		),
 	}
 
 	if stats := m.renderFactStats(); stats != "" {
@@ -238,6 +283,11 @@ func (m Model) renderPromptPreview() string {
 		return m.renderPanel(s.PromptPanelStatus, strings.Join(lines, "\n"), styles.panelDanger, m.singlePanelWidth())
 	}
 
+	lw, rw := m.splitWidths()
+	codeBoxWidth := m.embeddedBoxWidth(styles.panelEmphasis, styles.codeBox, rw)
+	codeInnerWidth := codeBoxWidth - styles.codeBox.GetHorizontalPadding()
+	maxLineWidth := max(10, codeInnerWidth-7)
+
 	lines := strings.Split(m.bundle.PromptText, "\n")
 	start := clamp(m.promptScroll, 0, max(0, len(lines)-1))
 	end := min(len(lines), start+m.promptPageSize())
@@ -246,6 +296,9 @@ func (m Model) renderPromptPreview() string {
 		line := lines[idx]
 		if line == "" {
 			line = " "
+		}
+		if runes := []rune(line); len(runes) > maxLineWidth && maxLineWidth > 3 {
+			line = string(runes[:maxLineWidth-1]) + "…"
 		}
 		visible = append(visible, fmt.Sprintf("%s %s",
 			styles.codeLineNumber.Render(fmt.Sprintf("%4d │", lineNumber(idx))),
@@ -271,10 +324,12 @@ func (m Model) renderPromptPreview() string {
 		}
 	}
 
-	lw, rw := m.splitWidths()
-	preview := m.renderPanel(s.PromptPanelPreview, styles.codeBox.Width(m.embeddedBoxWidth(styles.panelEmphasis, styles.codeBox, rw)).Render(strings.Join(visible, "\n")), styles.panelEmphasis, rw)
-	summary := m.renderPanel(s.PromptPanelMeta, strings.Join(meta, "\n"), styles.panel, lw)
-	return m.renderColumns(summary, preview)
+	previewBody := styles.codeBox.Width(codeBoxWidth).Render(strings.Join(visible, "\n"))
+	metaBody := strings.Join(meta, "\n")
+	return m.renderPanelPair(
+		s.PromptPanelMeta, metaBody, styles.panel, lw,
+		s.PromptPanelPreview, previewBody, styles.panelEmphasis, rw,
+	)
 }
 
 func (m Model) renderDone() string {
@@ -349,6 +404,8 @@ func (m Model) renderKeyHints() string {
 		return strings.Join(append(parts, langToggle...), "  ")
 	case StateSpecSummary:
 		parts := []string{
+			joinKeyHints("j", "k", "PgUp", "PgDn"),
+			styles.muted.Render(s.HintScroll),
 			joinKeyHints("Enter", "g"),
 			styles.muted.Render(s.HintCompilePrompt),
 			joinKeyHints("Esc"),
@@ -393,6 +450,25 @@ func (m Model) renderColumns(left, right string) string {
 		return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, left, "", right)
+}
+
+func (m Model) renderPanelPair(
+	lTitle, lBody string, lStyle lipgloss.Style, lWidth int,
+	rTitle, rBody string, rStyle lipgloss.Style, rWidth int,
+) string {
+	left := m.renderPanel(lTitle, lBody, lStyle, lWidth)
+	right := m.renderPanel(rTitle, rBody, rStyle, rWidth)
+
+	lh, rh := lipgloss.Height(left), lipgloss.Height(right)
+	if lh < rh {
+		lBody += strings.Repeat("\n", rh-lh)
+		left = m.renderPanel(lTitle, lBody, lStyle, lWidth)
+	} else if rh < lh {
+		rBody += strings.Repeat("\n", lh-rh)
+		right = m.renderPanel(rTitle, rBody, rStyle, rWidth)
+	}
+
+	return m.renderColumns(left, right)
 }
 
 func (m Model) renderFactStats() string {
@@ -514,11 +590,23 @@ func joinOrFallback(values []string, fallback string) string {
 	return strings.Join(values, ", ")
 }
 
+func (m Model) specPageSize() int {
+	return max(4, m.bodyAvailableHeight()-1)
+}
+
+func (m Model) maxSpecScroll() int {
+	content := m.renderSpecSummaryContent()
+	totalLines := strings.Count(content, "\n") + 1
+	return max(0, totalLines-m.specPageSize())
+}
+
 func (m Model) promptPageSize() int {
-	if m.height >= 24 {
-		return m.height - 18
+	avail := m.bodyAvailableHeight()
+	overhead := 5 // panel border(2) + title(1) + codeBox border(2)
+	if m.layoutWidth() < 100 {
+		overhead += 12
 	}
-	return 14
+	return max(4, avail-overhead)
 }
 
 func (m Model) maxPromptScroll() int {
