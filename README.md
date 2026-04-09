@@ -7,7 +7,29 @@
 
 ## What is ProjCompiler
 
-ProjCompiler is a Go CLI tool that scans local repositories, synthesizes compact project specifications, and compiles implementation prompts. It helps developers quickly generate structured project descriptions for collaboration with AI models.
+> **"Code is a temporary artifact. Prompt is knowledge itself."**
+
+A new trend is emerging on GitHub: open-source projects that provide only a Prompt, no code. Drop the Prompt into an AI, and it generates a complete, runnable application in one shot.
+
+**ProjCompiler does the reverse**: it "reverse-engineers" your codebase into a precise Prompt.
+
+```
+Your Codebase ──→ ProjCompiler ──→ A Precise Project Prompt
+                                       │
+                                       ↓
+                              Let AI Understand Your Project
+```
+
+### Why Do You Need It?
+
+- **Migrate Projects to AI Development**: "Translate" existing codebases into spec documents AI can understand
+- **Project Handoff Documentation**: Auto-generate structured project descriptions, more precise than manual docs
+- **Knowledge Preservation**: When code degrades into instantiated output of Prompts, you need to "extract" the knowledge back
+- **Multi-Model Compatible**: Generated Prompts aren't tied to any specific AI—any model can understand your project
+
+> **When open source shifts from "show me the code" to "show me the Prompt", ProjCompiler helps you complete the paradigm shift from code to Prompt.**
+
+---
 
 ## Core Features
 
