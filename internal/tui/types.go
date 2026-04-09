@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"projcompiler/internal/config"
 	"projcompiler/internal/spec"
 )
 
@@ -19,6 +20,7 @@ const (
 	StateSpecSummary   State = "spec_summary"
 	StatePromptPreview State = "prompt_preview"
 	StateDone          State = "done"
+	StateConfigEdit    State = "config_edit"
 )
 
 func (s State) Title() string {
@@ -33,6 +35,8 @@ func (s State) Title() string {
 		return "Prompt Preview"
 	case StateDone:
 		return "Done"
+	case StateConfigEdit:
+		return "Config Edit"
 	default:
 		return "Unknown"
 	}
@@ -59,6 +63,7 @@ type Services struct {
 	SpecBuilder    SpecBuilder
 	PromptCompiler PromptCompiler
 	Exporter       Exporter
+	Config         *config.Config
 }
 
 type Config struct {

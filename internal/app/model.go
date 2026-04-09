@@ -13,7 +13,7 @@ import (
 
 func newProgram(application *App) *tea.Program {
 	return tui.NewProgram(
-		newTUIServices(application.services),
+		newTUIServices(application.services, application.config),
 		tui.WithTitle("ProjCompiler"),
 		tui.WithDefaultPromptPath(defaultPromptPath(application.config)),
 	)
@@ -29,12 +29,13 @@ func defaultPromptPath(cfg config.Config) string {
 	return filepath.Join(cfg.Paths.WorkingDir, cfg.Output.PromptFile)
 }
 
-func newTUIServices(services Services) tui.Services {
+func newTUIServices(services Services, cfg config.Config) tui.Services {
 	return tui.Services{
 		Scanner:        scannerAdapter{inner: services.Scanner},
 		SpecBuilder:    specBuilderAdapter{inner: services.SpecBuilder},
 		PromptCompiler: promptCompilerAdapter{inner: services.PromptCompiler},
 		Exporter:       exporterAdapter{inner: services.Exporter},
+		Config:         &cfg,
 	}
 }
 

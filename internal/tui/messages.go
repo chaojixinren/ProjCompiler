@@ -43,3 +43,9 @@ type exportFinishedMsg struct {
 	OutputPath string
 	Err        error
 }
+
+type configSaveStartedMsg struct{}
+
+type configSaveFinishedMsg struct {
+	Err error
+}

@@ -106,3 +106,19 @@ func normalizeLanguage(value string) string {
 	}
 	return trimmed
 }
+
+// EnsureEnvFile ensures .env exists in workingDir; if not, copies from .env.example.
+// Returns the absolute path to the .env file.
+func EnsureEnvFile(workingDir string) (string, error) {
+	return ensureEnvFile(workingDir)
+}
+
+// Save writes the ModelConfig values to the .env file.
+func (c *Config) Save() error {
+	values := map[string]string{
+		"PROJCOMPILER_BASEURL": c.Model.BaseURL,
+		"PROJCOMPILER_APIKEY":  c.Model.APIKey,
+		"PROJCOMPILER_MODEL":   c.Model.Model,
+	}
+	return writeEnvFile(c.Paths.EnvFile, values)
+}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/textinput"
 
 	"projcompiler/internal/spec"
 )
@@ -35,6 +36,11 @@ type Model struct {
 	lastError        string
 	lastExportedPath string
 	logs             []string
+
+	// Config editing state
+	configInputs     []textinput.Model
+	configFocusIndex int
+	configSaving     bool
 }
 
 func (m Model) t() Strings {
@@ -50,14 +56,53 @@ func NewModel(services Services, options ...Option) Model {
 	}
 
 	model := Model{
-		config:     cfg,
-		services:   services,
-		state:      StatePathInput,
-		outputPath: cfg.DefaultPromptPath,
-		lang:       LangEN,
+		config:           cfg,
+		services:         services,
+		state:            StatePathInput,
+		outputPath:       cfg.DefaultPromptPath,
+		lang:             LangEN,
+		configInputs:     newConfigInputs("", "", ""),
+		configFocusIndex: 0,
 	}
 	model.appendLog(model.t().LogReady)
 	return model
+}
+
+func newConfigInputs(baseURL, apiKey, model string) []textinput.Model {
+	inputs := make([]textinput.Model, 3)
+
+	inputs[0] = textinput.New()
+	inputs[0].Placeholder = "https://api.example.com/v1"
+	inputs[0].SetValue(baseURL)
+	inputs[0].Focus()
+
+	inputs[1] = textinput.New()
+	inputs[1].Placeholder = "your-api-key"
+	inputs[1].SetValue(apiKey)
+	inputs[1].EchoMode = textinput.EchoPassword
+	inputs[1].EchoCharacter = '*'
+
+	inputs[2] = textinput.New()
+	inputs[2].Placeholder = "model-name"
+	inputs[2].SetValue(model)
+
+	return inputs
+}
+
+func (m *Model) initConfigInputsFromService() {
+	if m.services.Config != nil {
+		m.configInputs = newConfigInputs(
+			m.services.Config.Model.BaseURL,
+			m.services.Config.Model.APIKey,
+			m.services.Config.Model.Model,
+		)
+	} else {
+		m.configInputs = newConfigInputs("", "", "")
+	}
+	m.configFocusIndex = 0
+	m.configInputs[0].Focus()
+	m.configInputs[1].Blur()
+	m.configInputs[2].Blur()
 }
 
 func NewProgram(services Services, options ...Option) *tea.Program {
@@ -164,6 +209,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = StateDone
 		m.appendLog(fmt.Sprintf(m.t().LogExportedFmt, typed.OutputPath))
 		return m, nil
+	case configSaveStartedMsg:
+		m.configSaving = true
+		m.lastError = ""
+		m.appendLog(m.t().LogConfigSaving)
+		return m, nil
+	case configSaveFinishedMsg:
+		m.configSaving = false
+		if typed.Err != nil {
+			m.lastError = fmt.Sprintf(m.t().ErrConfigSaveFmt, typed.Err)
+			m.appendLog(m.lastError)
+			return m, nil
+		}
+		m.appendLog(m.t().LogConfigSaved)
+		m.state = StatePathInput
+		return m, nil
 	default:
 		return m, nil
 	}
@@ -184,6 +244,13 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.state == StatePathInput || m.state == StateDone {
 			return m, tea.Quit
 		}
+	case "c":
+		if m.state == StatePathInput {
+			m.initConfigInputsFromService()
+			m.state = StateConfigEdit
+			m.lastError = ""
+			return m, nil
+		}
 	}
 
 	switch m.state {
@@ -197,6 +264,8 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updatePromptPreview(msg)
 	case StateDone:
 		return m.updateDone(msg)
+	case StateConfigEdit:
+		return m.updateConfigEdit(msg)
 	default:
 		return m, nil
 	}
@@ -208,6 +277,11 @@ func (m Model) updatePathInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		path := strings.TrimSpace(m.pathInput)
 		if path == "" {
 			m.lastError = m.t().ErrPathEmpty
+			return m, nil
+		}
+		// Check if model config is complete before starting scan
+		if m.services.Config != nil && !m.services.Config.HasModelConfig() {
+			m.lastError = m.t().ErrConfigIncomplete
 			return m, nil
 		}
 		m.pathInput = path
@@ -308,6 +382,39 @@ func (m Model) updateDone(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	default:
 		return m, nil
+	}
+}
+
+func (m Model) updateConfigEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "tab":
+		m.configInputs[m.configFocusIndex].Blur()
+		m.configFocusIndex = (m.configFocusIndex + 1) % 3
+		m.configInputs[m.configFocusIndex].Focus()
+		return m, nil
+	case "shift+tab":
+		m.configInputs[m.configFocusIndex].Blur()
+		m.configFocusIndex = (m.configFocusIndex - 1 + 3) % 3
+		m.configInputs[m.configFocusIndex].Focus()
+		return m, nil
+	case "enter":
+		if m.configSaving {
+			return m, nil
+		}
+		return m, startSaveConfigCmd(
+			m.configInputs[0].Value(),
+			m.configInputs[1].Value(),
+			m.configInputs[2].Value(),
+			m.services.Config,
+		)
+	case "esc":
+		m.state = StatePathInput
+		m.lastError = ""
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.configInputs[m.configFocusIndex], cmd = m.configInputs[m.configFocusIndex].Update(msg)
+		return m, cmd
 	}
 }
 

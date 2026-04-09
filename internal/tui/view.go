@@ -91,6 +91,8 @@ func (m Model) renderBody() string {
 		return m.renderPromptPreview()
 	case StateDone:
 		return m.renderDone()
+	case StateConfigEdit:
+		return m.renderConfigEdit()
 	default:
 		s := m.t()
 		return titledPanel(s.UnknownPanelTitle, styles.text.Render(s.UnknownPanelBody), styles.panelDanger)
@@ -285,6 +287,41 @@ func (m Model) renderDone() string {
 	return m.renderPanel(s.DonePanelTitle, strings.Join(details, "\n"), styles.panelSuccess, m.singlePanelWidth())
 }
 
+func (m Model) renderConfigEdit() string {
+	s := m.t()
+	panelWidth := m.singlePanelWidth()
+	boxWidth := m.embeddedBoxWidth(styles.panel, styles.codeBox, panelWidth)
+
+	inputs := make([]string, 3)
+	labels := []string{s.ConfigBaseURLLabel, s.ConfigAPIKeyLabel, s.ConfigModelLabel}
+	for i, input := range m.configInputs {
+		style := styles.codeBox
+		if i == m.configFocusIndex {
+			style = styles.codeBox.Copy().BorderForeground(lipgloss.Color("62"))
+		}
+		inputs[i] = fmt.Sprintf("%s\n%s",
+			styles.muted.Render(labels[i]),
+			style.Width(boxWidth).Render(input.View()),
+		)
+	}
+
+	body := strings.Join([]string{
+		styles.text.Render(s.ConfigPanelHint),
+		"",
+		strings.Join(inputs, "\n\n"),
+	}, "\n")
+
+	if m.configSaving {
+		body = strings.Join([]string{
+			body,
+			"",
+			styles.muted.Render("Saving..."),
+		}, "\n")
+	}
+
+	return m.renderPanel(s.ConfigPanelTitle, body, styles.panelEmphasis, panelWidth)
+}
+
 func (m Model) renderKeyHints() string {
 	s := m.t()
 	langToggle := []string{
@@ -296,6 +333,8 @@ func (m Model) renderKeyHints() string {
 		parts := []string{
 			joinKeyHints("Enter"),
 			styles.muted.Render(s.HintStartScan),
+			joinKeyHints("c"),
+			styles.muted.Render(s.HintConfigEdit),
 			joinKeyHints("q"),
 			styles.muted.Render(s.HintQuit),
 		}
@@ -332,6 +371,16 @@ func (m Model) renderKeyHints() string {
 			styles.muted.Render(s.HintNewRun),
 			joinKeyHints("Enter", "q"),
 			styles.muted.Render(s.HintQuit),
+		}
+		return strings.Join(append(parts, langToggle...), "  ")
+	case StateConfigEdit:
+		parts := []string{
+			joinKeyHints("Tab", "Shift+Tab"),
+			styles.muted.Render(s.HintConfigSwitch),
+			joinKeyHints("Enter"),
+			styles.muted.Render(s.HintConfigSave),
+			joinKeyHints("Esc"),
+			styles.muted.Render(s.HintConfigCancel),
 		}
 		return strings.Join(append(parts, langToggle...), "  ")
 	default:
@@ -523,6 +572,8 @@ func (m Model) stageIndex() int {
 		return 3
 	case StateDone:
 		return 4
+	case StateConfigEdit:
+		return 0 // Show as if in path input stage
 	default:
 		return 0
 	}

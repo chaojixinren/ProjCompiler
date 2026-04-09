@@ -12,6 +12,12 @@ import (
 )
 
 func main() {
+	// Ensure .env file exists before loading config
+	if _, err := config.EnsureEnvFile("."); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to ensure env file: %v\n", err)
+		os.Exit(1)
+	}
+
 	cfg, err := config.Load(".")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load configuration: %v\n", err)

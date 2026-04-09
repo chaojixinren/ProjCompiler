@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"projcompiler/internal/config"
 	"projcompiler/internal/spec"
 )
 
@@ -62,6 +63,22 @@ func startExportCmd(runID int, bundle spec.PromptBundle, outputPath string, expo
 				outputPath = resolvedPath
 			}
 			return exportFinishedMsg{RunID: runID, OutputPath: outputPath, Err: err}
+		},
+	)
+}
+
+func startSaveConfigCmd(baseURL, apiKey, model string, cfg *config.Config) tea.Cmd {
+	return tea.Batch(
+		func() tea.Msg { return configSaveStartedMsg{} },
+		func() tea.Msg {
+			if cfg == nil {
+				return configSaveFinishedMsg{Err: missingServiceError("config")}
+			}
+			cfg.Model.BaseURL = strings.TrimSpace(baseURL)
+			cfg.Model.APIKey = strings.TrimSpace(apiKey)
+			cfg.Model.Model = strings.TrimSpace(model)
+			err := cfg.Save()
+			return configSaveFinishedMsg{Err: err}
 		},
 	)
 }

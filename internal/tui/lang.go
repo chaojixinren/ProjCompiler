@@ -25,6 +25,7 @@ type Strings struct {
 	TitleSpecSummary   string
 	TitlePromptPreview string
 	TitleDone          string
+	TitleConfigEdit    string
 	TitleUnknown       string
 
 	// Path input view
@@ -100,6 +101,15 @@ type Strings struct {
 	DoneNextStep    string
 	DoneNextStepVal string
 
+	// Config edit view
+	ConfigPanelTitle    string
+	ConfigBaseURLLabel  string
+	ConfigAPIKeyLabel   string
+	ConfigModelLabel    string
+	ConfigPanelHint     string
+	ConfigSaved         string
+	ConfigSaveFailed    string
+
 	// Key hints
 	HintStartScan     string
 	HintQuit          string
@@ -111,6 +121,10 @@ type Strings struct {
 	HintBack          string
 	HintNewRun        string
 	HintToggleLang    string
+	HintConfigEdit    string
+	HintConfigSwitch  string
+	HintConfigSave    string
+	HintConfigCancel  string
 
 	// Shared / misc
 	LogPanelTitle     string
@@ -136,11 +150,13 @@ type Strings struct {
 	FmtScrollPos    string // e.g. "%d / %d"
 
 	// User-visible error messages
-	ErrPathEmpty  string
-	ErrScanFailed string
-	ErrSpecFailed string
-	ErrPromptFmt  string // contains %v
-	ErrExportFmt  string // contains %v
+	ErrPathEmpty       string
+	ErrScanFailed      string
+	ErrSpecFailed      string
+	ErrPromptFmt       string // contains %v
+	ErrExportFmt       string // contains %v
+	ErrConfigIncomplete string
+	ErrConfigSaveFmt   string // contains %v
 
 	// Log messages (shown in Recent Activity panel)
 	LogReady           string
@@ -153,6 +169,8 @@ type Strings struct {
 	LogExportingFmt    string // contains %s
 	LogExportedFmt     string // contains %s
 	LogCancelled       string
+	LogConfigSaving    string
+	LogConfigSaved     string
 }
 
 // StateTitle returns the display title for the given state in this language.
@@ -168,6 +186,8 @@ func (s Strings) StateTitle(state State) string {
 		return s.TitlePromptPreview
 	case StateDone:
 		return s.TitleDone
+	case StateConfigEdit:
+		return s.TitleConfigEdit
 	default:
 		return s.TitleUnknown
 	}
@@ -196,6 +216,7 @@ func stringsEN() Strings {
 		TitleSpecSummary:   "Spec Summary",
 		TitlePromptPreview: "Prompt Preview",
 		TitleDone:          "Done",
+			TitleConfigEdit:    "Config Edit",
 		TitleUnknown:       "Unknown",
 
 		PathIntro:      "Enter a local repository path. The CLI will scan the repo, extract a compact project spec, and compile a production-oriented prompt.",
@@ -266,6 +287,14 @@ func stringsEN() Strings {
 		DoneNextStep:    "Next step",
 		DoneNextStepVal: "Use the exported prompt as the build brief for your code generation workflow",
 
+			ConfigPanelTitle:    "Model Configuration",
+			ConfigBaseURLLabel:  "Base URL",
+			ConfigAPIKeyLabel:   "API Key",
+			ConfigModelLabel:    "Model Name",
+			ConfigPanelHint:     "Configure your model provider settings. These values will be saved to .env file.",
+			ConfigSaved:         "Configuration saved successfully.",
+			ConfigSaveFailed:    "Failed to save configuration.",
+
 		HintStartScan:     "start scan",
 		HintQuit:          "quit",
 		HintCancelRun:     "cancel run",
@@ -276,6 +305,10 @@ func stringsEN() Strings {
 		HintBack:          "back",
 		HintNewRun:        "new run",
 		HintToggleLang:    "toggle language",
+			HintConfigEdit:    "edit config",
+			HintConfigSwitch:  "switch field",
+			HintConfigSave:    "save",
+			HintConfigCancel:  "cancel",
 
 		LogPanelTitle:     "Recent Activity",
 		UnknownPanelTitle: "Unknown State",
@@ -302,6 +335,8 @@ func stringsEN() Strings {
 		ErrSpecFailed: "Specification build failed",
 		ErrPromptFmt:  "Prompt compilation failed: %v",
 		ErrExportFmt:  "Export failed: %v",
+			ErrConfigIncomplete: "Model configuration incomplete. Press 'c' to configure BaseURL, APIKey, and Model.",
+			ErrConfigSaveFmt:   "Failed to save configuration: %v",
 
 		LogReady:           "Ready for a local project path.",
 		LogScanningFmt:     "Scanning project: %s",
@@ -313,6 +348,8 @@ func stringsEN() Strings {
 		LogExportingFmt:    "Exporting prompt to %s",
 		LogExportedFmt:     "Prompt exported to %s",
 		LogCancelled:       "Cancelled current run.",
+			LogConfigSaving:    "Saving configuration...",
+			LogConfigSaved:     "Configuration saved.",
 	}
 }
 
@@ -331,6 +368,7 @@ func stringsZH() Strings {
 		TitleSpecSummary:   "规格摘要",
 		TitlePromptPreview: "提示词预览",
 		TitleDone:          "已完成",
+			TitleConfigEdit:    "配置编辑",
 		TitleUnknown:       "未知",
 
 		PathIntro:      "输入本地仓库路径。工具将扫描仓库、提取精简的项目规格，并编译面向生产的提示词。",
@@ -401,6 +439,14 @@ func stringsZH() Strings {
 		DoneNextStep:    "下一步",
 		DoneNextStepVal: "将导出的提示词作为代码生成工作流的构建说明",
 
+			ConfigPanelTitle:    "模型配置",
+			ConfigBaseURLLabel:  "基础URL",
+			ConfigAPIKeyLabel:   "API密钥",
+			ConfigModelLabel:    "模型名称",
+			ConfigPanelHint:     "配置您的模型提供商设置。这些值将保存到.env文件。",
+			ConfigSaved:         "配置已成功保存。",
+			ConfigSaveFailed:    "配置保存失败。",
+
 		HintStartScan:     "开始扫描",
 		HintQuit:          "退出",
 		HintCancelRun:     "取消运行",
@@ -411,6 +457,10 @@ func stringsZH() Strings {
 		HintBack:          "返回",
 		HintNewRun:        "新建运行",
 		HintToggleLang:    "切换语言",
+			HintConfigEdit:    "编辑配置",
+			HintConfigSwitch:  "切换字段",
+			HintConfigSave:    "保存",
+			HintConfigCancel:  "取消",
 
 		LogPanelTitle:     "最近活动",
 		UnknownPanelTitle: "未知状态",
@@ -437,6 +487,8 @@ func stringsZH() Strings {
 		ErrSpecFailed: "规格构建失败",
 		ErrPromptFmt:  "提示词编译失败：%v",
 		ErrExportFmt:  "导出失败：%v",
+			ErrConfigIncomplete: "模型配置不完整。按 'c' 配置 BaseURL、APIKey 和 Model。",
+			ErrConfigSaveFmt:   "配置保存失败：%v",
 
 		LogReady:           "等待本地项目路径。",
 		LogScanningFmt:     "正在扫描项目：%s",
@@ -448,5 +500,7 @@ func stringsZH() Strings {
 		LogExportingFmt:    "正在导出提示词至 %s",
 		LogExportedFmt:     "提示词已导出至 %s",
 		LogCancelled:       "已取消当前运行。",
+			LogConfigSaving:    "正在保存配置...",
+			LogConfigSaved:     "配置已保存。",
 	}
 }

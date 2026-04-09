@@ -1,191 +1,105 @@
 # ProjCompiler
 
-`ProjCompiler` 是一个本地 Go CLI 应用，目标是把一个现有中小型项目解析成结构化规格，再生成一段英文纯提示词，供通用大模型直接使用。
+ProjCompiler 是一个 Go CLI 应用，用于扫描本地项目仓库、合成项目规格并生成实现提示词。
 
-首版仍然坚持 MVP 边界：只做本地项目分析和提示词生成，不做远程仓库拉取，不做特定工具命令包装，不做向量库、知识图谱和自动修复闭环。
+## 功能特性
 
-## 当前进展
+- **仓库扫描**：自动识别项目结构、构建清单、文档、入口点和关键代码片段
+- **项目规格合成**：从原始事实提取紧凑的项目规格（目标、技术画像、模块、约束）
+- **提示词编译**：遵循 `/init` 剪枝规则，只保留模型可能出错的关键信息
+- **终端交互界面**：基于 Bubble Tea 的 TUI，支持中英文切换（Ctrl+L）
 
-当前仓库已经不再停留在纯设计阶段，已有真实代码落在以下主链路上：
+## 快速开始
 
-- `internal/scan` 已实现扫描模块，采用 `5` 个只读工具加 `1` 个协调器。
-- `internal/spec` 已定义 `RepoFacts`、`ProjectSpec`、`PromptBundle` 及 `observed / inferred / missing` 信号结构。
-- `internal/adkflow` 已实现 OpenAI-compatible client、ADK model adapter、`SpecBuilder`、`Assembler`。
-- `internal/prompt` 已实现 prompt 过滤和渲染，遵循 `/init` 风格的删减规则。
-- `internal/tui` 已实现 Bubble Tea 状态机。
-- `internal/app` 与 `cmd/projcompiler` 已开始 wiring，把扫描、规格构建、提示词编译、导出和 TUI 串起来。
+### 构建
 
-## 项目目标
+```bash
+go build -o projcompiler ./cmd/projcompiler
+```
 
-- 输入一个本地项目目录
-- 扫描项目结构、依赖、入口文件、说明文档和关键源码片段
-- 抽取统一的项目规格
-- 生成一段英文纯文本提示词
-- 在本地 TUI 中预览并导出 `prompt.txt`
+### 配置
 
-## 首版范围
+复制 `.env.example` 到 `.env` 并填写配置：
 
-首版包含：
+```bash
+cp .env.example .env
+```
 
-- 本地目录输入
-- 终端交互界面
-- 轻量项目扫描
-- 项目规格抽取
-- 英文纯文本提示词生成
-- 结果预览与导出
+配置项说明：
 
-首版不包含：
+| 键名 | 说明 | 必需 |
+|------|------|------|
+| `PROJCOMPILER_BASEURL` | 模型端点（程序自动追加 `/chat/completions`) | 是 |
+| `PROJCOMPILER_APIKEY` | API 密钥 | 是 |
+| `PROJCOMPILER_MODEL` | 模型名称 | 是 |
+| `PROJCOMPILER_OUTPUT_LANGUAGE` | 输出语言（默认：english) | 否 |
+| `PROJCOMPILER_PROMPT_FILE` | 输出文件名（默认：prompt.txt) | 否 |
 
-- 远程仓库拉取
-- tree-sitter
-- 向量检索
-- 图数据库
-- 自动编译与自动修复闭环
-- 多仓库联合分析
-- `claude`、`codex` 等命令格式包装
+环境变量优先级高于文件值，旧版键名（`BASEURL`、`APIKEY`、`MODEL`) 也受支持。
+
+### 运行
+
+```bash
+./projcompiler
+# 或直接运行
+go run ./cmd/projcompiler
+```
+
+启动后输入项目路径，程序依次执行扫描、规格合成、提示词编译，最终导出 `prompt.txt`。
+
+## 架构
+
+ProjCompiler 采用四阶段流水线：
+
+```
+Scan → SpecBuilder → PromptCompiler → Exporter
+```
+
+数据流转：
+
+| 结构 | 来源 | 说明 |
+|------|------|------|
+| `RepoFacts` | Scanner | 原始事实（文件树、文档、构建信息、入口点、代码片段）|
+| `ProjectSpec` | SpecBuilder | 紧凑规格（目标、技术画像、模块、约束）|
+| `PromptBundle` | PromptCompiler | 最终提示词（章节、备注）|
+
+每个事实携带 `FactSignal` 标注置信度：
+- `Observed` (1.0) - 直接观测到的事实
+- `Inferred` (<1.0) - 推断得出的事实  
+- `Missing` (0) - 缺失的信息
+
+## 项目结构
+
+```
+cmd/projcompiler/     # 入口点，组装服务并启动 TUI
+internal/
+  app/                # 应用装配、服务契约、导出器
+  config/             # 配置加载（从 .env）
+  scan/               # 仓库扫描（编排器 + 5 个探测工具）
+  spec/               # 共享数据结构（事实、信号、项目规格、提示词包）
+  prompt/             # 提示词编译和过滤
+  adkflow/            # LLM 规格合成、ADK agent 装配
+  tui/                # Bubble Tea 终端 UI（状态、模型、视图）
+```
+
+### 扫描工具
+
+`ScanOrchestrator` 协调五个探测工具：
+
+1. **RepoTreeTool** - 遍历文件树，识别候选文档/清单/源文件
+2. **ManifestProbeTool** - 解析构建清单（go.mod、package.json、Cargo.toml)
+3. **DocsProbeTool** - 提取 README 和文档摘要
+4. **EntrypointProbeTool** - 识别入口点（main.go、main 函数)
+5. **SnippetSelectTool** - 选择入口点附近的代表性代码片段
+
+扫描支持限制（最大深度、文件数、片段数）和 `.gitignore` 风格的忽略模式。
 
 ## 技术栈
 
-- 语言：Go
-- 智能体框架：`google.golang.org/adk`
-- 终端界面：`github.com/charmbracelet/bubbletea`
-- 模型接入：OpenAI-compatible HTTP API
+- Go 1.25
+- [Bubble Tea](https://github.com/charmbracelet/bubbletea) - 终端 UI 框架
+- [Google ADK](https://google.golang.org/adk) - Agent 开发框架
 
-## 当前实现结构
+## 许可证
 
-```text
-ProjCompiler/
-├── cmd/
-│   └── projcompiler/
-│       └── main.go
-├── internal/
-│   ├── adkflow/
-│   │   ├── analyzer.go
-│   │   ├── assembler.go
-│   │   ├── client.go
-│   │   ├── client_test.go
-│   │   └── model_adapter.go
-│   ├── app/
-│   │   ├── app.go
-│   │   ├── contracts.go
-│   │   ├── exporter.go
-│   │   ├── model.go
-│   │   ├── README.md
-│   │   └── services.go
-│   ├── config/
-│   │   ├── config.go
-│   │   └── env.go
-│   ├── prompt/
-│   │   ├── compiler.go
-│   │   ├── compiler_test.go
-│   │   ├── filter.go
-│   │   └── render.go
-│   ├── scan/
-│   │   ├── docs_probe_tool.go
-│   │   ├── entrypoint_probe_tool.go
-│   │   ├── ignore.go
-│   │   ├── manifest_probe_tool.go
-│   │   ├── orchestrator.go
-│   │   ├── repo_tree_tool.go
-│   │   ├── snippet_select_tool.go
-│   │   ├── tool.go
-│   │   └── types.go
-│   ├── spec/
-│   │   ├── facts.go
-│   │   ├── project.go
-│   │   ├── prompt.go
-│   │   └── signals.go
-│   └── tui/
-│       ├── commands.go
-│       ├── messages.go
-│       ├── model.go
-│       ├── types.go
-│       └── view.go
-├── MVP-架构图.md
-├── MVP-模块任务设计.md
-├── MVP-实现说明.md
-└── 子Agent任务分发与设计.md
-```
-
-## 当前主链路
-
-```text
-本地目录 -> RepoFacts -> ProjectSpec -> PromptBundle -> prompt.txt
-```
-
-对应实现位置：
-
-- 扫描：`internal/scan`
-- 规格结构：`internal/spec`
-- ADK 规格构建：`internal/adkflow`
-- Prompt 编译：`internal/prompt`
-- TUI：`internal/tui`
-- 装配与导出：`internal/app`、`cmd/projcompiler`
-
-## 借鉴来源
-
-当前实现主要借了三类思路：
-
-- `DeepWiki-open`
-  - 借“先看仓库结构和 README，再进入下一层理解”
-  - 不借 wiki 生成、RAG、embedding
-- `GitNexus`
-  - 借“分阶段处理流水线”和“推断结果要带理由/证据”
-  - 不借 tree-sitter、图数据库、impact analysis
-- `ClaudeCode /init` 与工具编排
-  - 借“只保留模型会做错的事实”
-  - 借“工具边界清晰、协调器只做编排”
-
-当前仓库内已经明确参考过的本地文件主要包括：
-
-- `/Users/chaoji_xinren/project/ClaudeCode/src/commands/init.ts`
-- `/Users/chaoji_xinren/project/ClaudeCode/src/projectOnboardingState.ts`
-- `/Users/chaoji_xinren/project/ClaudeCode/src/services/tools/toolOrchestration.ts`
-- `/Users/chaoji_xinren/project/ClaudeCode/src/services/tools/toolExecution.ts`
-- `/Users/chaoji_xinren/project/ClaudeCode/src/tools/FileReadTool/prompt.ts`
-- `/Users/chaoji_xinren/project/ClaudeCode/src/tools/GrepTool/prompt.ts`
-- `/Users/chaoji_xinren/project/ClaudeCode/src/tools/ToolSearchTool/prompt.ts`
-
-补充说明：
-
-- 父目录 `ClaudeCode` 中本轮未检索到 `Halley` 相关代码或命名，因此目前文档里仍将其视为待补充参考源。
-
-## 当前状态
-
-已经完成的实现：
-
-- 扫描模块的 `5 + 1` 结构已落代码
-- `.env` 配置读取已实现
-- OpenAI-compatible completion client 已实现
-- ADK model adapter 已实现
-- `SpecBuilder` 已实现，包含 deterministic fallback 和 LLM refine 路径
-- `PromptCompiler` 已实现，输出英文纯提示词
-- Bubble Tea 状态机已实现
-- 文件导出器已实现
-- `cmd/projcompiler/main.go` 已开始装配应用
-
-当前状态或待验证项：
-
-- `internal/app` 的装配已经开始，但还没有把所有模块的端到端运行结果正式验证通过
-- 当前仓库执行 `go test ./...` 仍失败，主要原因是 `go.sum` 中缺少 ADK 与 Bubble Tea 的部分传递依赖校验项，同时默认 Go cache 路径在当前沙箱环境下也有权限问题
-- `internal/scan`、`internal/spec` 在当前仓库内可被 `go test` 识别到，但它们目前没有测试文件
-- Prompt 生成虽然已有实现，但真实模型调用链路仍需要在补齐依赖校验后再做一次完整验证
-
-## 配置
-
-模型配置通过 `.env` 读取，当前实现支持这些键名：
-
-- `PROJCOMPILER_BASEURL` 或 `BASEURL`
-- `PROJCOMPILER_APIKEY` 或 `APIKEY`
-- `PROJCOMPILER_MODEL` 或 `MODEL`
-- `PROJCOMPILER_OUTPUT_LANGUAGE` 或 `OUTPUT_LANGUAGE`
-- `PROJCOMPILER_PROMPT_FILE` 或 `PROMPT_FILE`
-
-默认输出语言当前仍为英文。
-
-## 相关文档
-
-- [MVP-架构图.md](./docs/MVP-架构图.md)
-- [MVP-模块任务设计.md](./docs/MVP-模块任务设计.md)
-- [子Agent任务分发与设计.md](./docs/子Agent任务分发与设计.md)
-- [MVP-实现说明.md](./docs/MVP-实现说明.md)
+MIT
