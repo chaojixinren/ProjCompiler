@@ -16,6 +16,7 @@ type Model struct {
 
 	state       State
 	activeRunID int
+	lang        Language
 
 	pathInput  string
 	outputPath string
@@ -36,6 +37,10 @@ type Model struct {
 	logs             []string
 }
 
+func (m Model) t() Strings {
+	return stringsFor(m.lang)
+}
+
 func NewModel(services Services, options ...Option) Model {
 	cfg := DefaultConfig()
 	for _, option := range options {
@@ -49,8 +54,9 @@ func NewModel(services Services, options ...Option) Model {
 		services:   services,
 		state:      StatePathInput,
 		outputPath: cfg.DefaultPromptPath,
+		lang:       LangEN,
 	}
-	model.appendLog("Ready for a local project path.")
+	model.appendLog(model.t().LogReady)
 	return model
 }
 
@@ -77,7 +83,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = true
 		m.lastError = ""
-		m.appendLog(fmt.Sprintf("Scanning project: %s", typed.Path))
+		m.appendLog(fmt.Sprintf(m.t().LogScanningFmt, typed.Path))
 		return m, nil
 	case scanFinishedMsg:
 		if typed.RunID != m.activeRunID {
@@ -85,11 +91,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = false
 		if typed.Err != nil {
-			m.failToInput("Scan failed", typed.Err)
+			m.failToInput(m.t().ErrScanFailed, typed.Err)
 			return m, nil
 		}
 		m.facts = typed.Facts
-		m.appendLog(fmt.Sprintf("Scan complete. %d docs, %d entry points.",
+		m.appendLog(fmt.Sprintf(m.t().LogScanDoneFmt,
 			len(typed.Facts.Docs), len(typed.Facts.EntryPoints)))
 		return m, startBuildSpecCmd(m.activeRunID, m.facts, m.services.SpecBuilder)
 	case specStartedMsg:
@@ -98,7 +104,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = true
 		m.lastError = ""
-		m.appendLog("Building project specification.")
+		m.appendLog(m.t().LogBuildingSpec)
 		return m, nil
 	case specFinishedMsg:
 		if typed.RunID != m.activeRunID {
@@ -106,12 +112,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = false
 		if typed.Err != nil {
-			m.failToInput("Specification build failed", typed.Err)
+			m.failToInput(m.t().ErrSpecFailed, typed.Err)
 			return m, nil
 		}
 		m.projectSpec = typed.ProjectSpec
 		m.state = StateSpecSummary
-		m.appendLog("Project specification ready.")
+		m.appendLog(m.t().LogSpecReady)
 		return m, nil
 	case promptStartedMsg:
 		if typed.RunID != m.activeRunID {
@@ -120,7 +126,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = StatePromptPreview
 		m.compilingPrompt = true
 		m.lastError = ""
-		m.appendLog("Compiling final prompt.")
+		m.appendLog(m.t().LogCompilingPrompt)
 		return m, nil
 	case promptFinishedMsg:
 		if typed.RunID != m.activeRunID {
@@ -128,13 +134,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.compilingPrompt = false
 		if typed.Err != nil {
-			m.lastError = fmt.Sprintf("Prompt compilation failed: %v", typed.Err)
+			m.lastError = fmt.Sprintf(m.t().ErrPromptFmt, typed.Err)
 			m.appendLog(m.lastError)
 			return m, nil
 		}
 		m.bundle = typed.Bundle
 		m.promptScroll = 0
-		m.appendLog("Prompt is ready for review.")
+		m.appendLog(m.t().LogPromptReady)
 		return m, nil
 	case exportStartedMsg:
 		if typed.RunID != m.activeRunID {
@@ -142,7 +148,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.exporting = true
 		m.lastError = ""
-		m.appendLog(fmt.Sprintf("Exporting prompt to %s", typed.OutputPath))
+		m.appendLog(fmt.Sprintf(m.t().LogExportingFmt, typed.OutputPath))
 		return m, nil
 	case exportFinishedMsg:
 		if typed.RunID != m.activeRunID {
@@ -150,13 +156,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.exporting = false
 		if typed.Err != nil {
-			m.lastError = fmt.Sprintf("Export failed: %v", typed.Err)
+			m.lastError = fmt.Sprintf(m.t().ErrExportFmt, typed.Err)
 			m.appendLog(m.lastError)
 			return m, nil
 		}
 		m.lastExportedPath = typed.OutputPath
 		m.state = StateDone
-		m.appendLog(fmt.Sprintf("Prompt exported to %s", typed.OutputPath))
+		m.appendLog(fmt.Sprintf(m.t().LogExportedFmt, typed.OutputPath))
 		return m, nil
 	default:
 		return m, nil
@@ -167,6 +173,13 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
+	case "ctrl+l":
+		if m.lang == LangZH {
+			m.lang = LangEN
+		} else {
+			m.lang = LangZH
+		}
+		return m, nil
 	case "q":
 		if m.state == StatePathInput || m.state == StateDone {
 			return m, tea.Quit
@@ -194,7 +207,7 @@ func (m Model) updatePathInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		path := strings.TrimSpace(m.pathInput)
 		if path == "" {
-			m.lastError = "Project path cannot be empty."
+			m.lastError = m.t().ErrPathEmpty
 			return m, nil
 		}
 		m.pathInput = path
@@ -221,7 +234,7 @@ func (m Model) updateScanning(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.resetForNewRun()
-		m.appendLog("Cancelled current run.")
+		m.appendLog(m.t().LogCancelled)
 		return m, nil
 	default:
 		return m, nil

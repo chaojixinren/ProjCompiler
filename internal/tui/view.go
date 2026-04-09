@@ -22,11 +22,11 @@ func (m Model) View() string {
 }
 
 func (m Model) renderHeader() string {
-	subtitle := "Local repository analysis -> project specification -> final build prompt"
+	s := m.t()
 	header := lipgloss.JoinVertical(
 		lipgloss.Center,
 		m.renderBanner(),
-		styles.subtitle.Render(subtitle),
+		styles.subtitle.Render(s.Subtitle),
 		m.renderStageBar(),
 	)
 
@@ -34,9 +34,9 @@ func (m Model) renderHeader() string {
 		lipgloss.Top,
 		stateBadge(m.state),
 		"  ",
-		styles.muted.Render("State"),
+		styles.muted.Render(s.StateMeta),
 		" ",
-		styles.label.Render(m.state.Title()),
+		styles.label.Render(s.StateTitle(m.state)),
 	)
 
 	return m.renderPanelWithStyle(
@@ -56,15 +56,16 @@ func (m Model) renderBanner() string {
 }
 
 func (m Model) renderStageBar() string {
+	s := m.t()
 	stages := []struct {
 		state State
 		label string
 	}{
-		{StatePathInput, "1 Input"},
-		{StateScanning, "2 Scan"},
-		{StateSpecSummary, "3 Spec"},
-		{StatePromptPreview, "4 Prompt"},
-		{StateDone, "5 Done"},
+		{StatePathInput, s.StageInput},
+		{StateScanning, s.StageScan},
+		{StateSpecSummary, s.StageSpec},
+		{StatePromptPreview, s.StagePrompt},
+		{StateDone, s.StageDone},
 	}
 
 	current := m.stageIndex()
@@ -91,22 +92,24 @@ func (m Model) renderBody() string {
 	case StateDone:
 		return m.renderDone()
 	default:
-		return titledPanel("Unknown State", styles.text.Render("The TUI entered an unknown state."), styles.panelDanger)
+		s := m.t()
+		return titledPanel(s.UnknownPanelTitle, styles.text.Render(s.UnknownPanelBody), styles.panelDanger)
 	}
 }
 
 func (m Model) renderFooter() string {
+	s := m.t()
 	parts := make([]string, 0, 2)
 	if m.lastError != "" {
-		parts = append(parts, titledPanel("Error", styles.text.Render(m.lastError), styles.panelDanger))
+		parts = append(parts, titledPanel(s.ErrorPanelTitle, styles.text.Render(m.lastError), styles.panelDanger))
 	}
 
 	statusLines := []string{}
 	if m.bundle.Ready() {
-		statusLines = append(statusLines, metricLine("Prompt", fmt.Sprintf("%d chars", len(m.bundle.PromptText))))
+		statusLines = append(statusLines, metricLine(s.StatPrompt, fmt.Sprintf(s.FmtPromptChars, len(m.bundle.PromptText))))
 	}
 	if m.lastExportedPath != "" {
-		statusLines = append(statusLines, metricLine("Last export", m.lastExportedPath))
+		statusLines = append(statusLines, metricLine(s.StatLastExport, m.lastExportedPath))
 	}
 
 	helpWidth := max(24, m.singlePanelWidth()-styles.helpBar.GetHorizontalBorderSize())
@@ -125,68 +128,75 @@ func (m Model) renderLogs() string {
 	if len(m.logs) == 0 {
 		return ""
 	}
+	s := m.t()
 	lines := make([]string, 0, len(m.logs))
 	for _, line := range m.logs {
 		lines = append(lines, styles.logLine.Render(line))
 	}
-	return m.renderPanel("Recent Activity", strings.Join(lines, "\n"), styles.logPanel, m.singlePanelWidth())
+	return m.renderPanel(s.LogPanelTitle, strings.Join(lines, "\n"), styles.logPanel, m.singlePanelWidth())
 }
 
 func (m Model) renderPathInput() string {
+	s := m.t()
+	lw, rw := m.splitWidths()
+
 	intro := []string{
-		styles.text.Render("Enter a local repository path. The CLI will scan the repo, extract a compact project spec, and compile a production-oriented prompt."),
+		styles.text.Render(s.PathIntro),
 		"",
-		metricLine("Example", "/path/to/project"),
-		metricLine("Default export", valueOrFallback(m.outputPath, "prompt.txt")),
+		metricLine(s.PathExample, "/path/to/project"),
+		metricLine(s.PathDefaultExp, valueOrFallback(m.outputPath, "prompt.txt")),
 	}
 
 	inputBody := []string{
-		styles.muted.Render("Repository path"),
-		styles.codeBox.Width(m.embeddedBoxWidth(styles.panel, styles.codeBox, m.panelWidth())).Render("> " + valueOrFallback(m.pathInput, "")),
-		styles.muted.Render("The path is submitted exactly as typed after trimming leading and trailing whitespace."),
+		styles.muted.Render(s.PathFieldLabel),
+		styles.codeBox.Width(m.embeddedBoxWidth(styles.panel, styles.codeBox, rw)).Render("> " + valueOrFallback(m.pathInput, "")),
 	}
 
-	left := m.renderPanel("What This Run Does", strings.Join(intro, "\n"), styles.panelEmphasis, m.panelWidth())
-	right := m.renderPanel("Input", strings.Join(inputBody, "\n\n"), styles.panel, m.panelWidth())
+	left := m.renderPanel(s.PathPanelInfo, strings.Join(intro, "\n"), styles.panelEmphasis, lw)
+	right := m.renderPanel(s.PathPanelInput, strings.Join(inputBody, "\n\n"), styles.panel, rw)
 	return m.renderColumns(left, right)
 }
 
 func (m Model) renderScanning() string {
-	status := "Queued"
+	s := m.t()
+	status := s.ScanQueued
 	if m.loading {
-		status = "Running repository scan and spec extraction"
+		status = s.ScanRunning
 	}
-	phase := "Repository scan -> document probe -> spec build"
+	phase := s.ScanPhaseMain
 	if len(m.projectSpec.Goal) > 0 {
-		phase = "Finalizing project specification"
+		phase = s.ScanPhaseFinal
 	}
 
 	leftBody := strings.Join([]string{
-		metricLine("Project path", valueOrFallback(strings.TrimSpace(m.pathInput), "not set")),
-		metricLine("Status", status),
-		metricLine("Current phase", phase),
-		metricLine("Cancellation", "Press Esc to abandon this run and return to input"),
+		metricLine(s.ScanLabelPath, valueOrFallback(strings.TrimSpace(m.pathInput), s.NotSet)),
+		metricLine(s.ScanLabelStatus, status),
+		metricLine(s.ScanLabelPhase, phase),
+		metricLine(s.ScanLabelCancel, s.ScanCancelHint),
 	}, "\n")
 
 	rightBody := bulletLines([]string{
-		"Scan results are assembled from deterministic local reads.",
-		"Prompt compilation starts only after the project spec is ready.",
-		"No code is generated during this stage.",
+		s.ScanNote1,
+		s.ScanNote2,
+		s.ScanNote3,
 	})
 
-	left := m.renderPanel("Pipeline Status", leftBody, styles.panelEmphasis, m.panelWidth())
-	right := m.renderPanel("Notes", rightBody, styles.panel, m.panelWidth())
+	lw, rw := m.splitWidths()
+	left := m.renderPanel(s.ScanPanelStatus, leftBody, styles.panelEmphasis, lw)
+	right := m.renderPanel(s.ScanPanelNotes, rightBody, styles.panel, rw)
 	return m.renderColumns(left, right)
 }
 
 func (m Model) renderSpecSummary() string {
-	topLeft := m.renderPanel("Goal", styles.text.Render(valueOrFallback(m.projectSpec.Goal, "Not available")), styles.panelEmphasis, m.panelWidth())
-	topRight := m.renderPanel("Tech Profile", formatTechProfile(m.projectSpec.TechProfile), styles.panel, m.panelWidth())
+	s := m.t()
+	lw, rw := m.splitWidths()
+	topLeft := m.renderPanel(s.SpecPanelGoal, styles.text.Render(valueOrFallback(m.projectSpec.Goal, s.SpecGoalFallback)), styles.panelEmphasis, lw)
+	topRight := m.renderPanel(s.SpecPanelTech, formatTechProfile(s, m.projectSpec.TechProfile), styles.panel, rw)
 
-	modules := m.renderPanel("Core Modules", formatModules(m.projectSpec.ImplementationShape.CoreModules), styles.panel, m.panelWidth())
-	flows := m.renderPanel("Key Flows", formatFlows(m.projectSpec.ImplementationShape.KeyFlows), styles.panel, m.panelWidth())
-	constraints := m.renderPanel("Critical Constraints", formatConstraints(m.projectSpec.CriticalConstraints), styles.panelEmphasis, m.panelWidth())
-	acceptance := m.renderPanel("Acceptance Checks", formatAcceptanceChecks(m.projectSpec.AcceptanceChecks), styles.panel, m.panelWidth())
+	modules := m.renderPanel(s.SpecPanelModules, formatModules(s, m.projectSpec.ImplementationShape.CoreModules), styles.panel, lw)
+	flows := m.renderPanel(s.SpecPanelFlows, formatFlows(s, m.projectSpec.ImplementationShape.KeyFlows), styles.panel, rw)
+	constraints := m.renderPanel(s.SpecPanelConstraints, formatConstraints(s, m.projectSpec.CriticalConstraints), styles.panelEmphasis, lw)
+	acceptance := m.renderPanel(s.SpecPanelChecks, formatAcceptanceChecks(s, m.projectSpec.AcceptanceChecks), styles.panel, rw)
 
 	panels := []string{
 		m.renderColumns(topLeft, topRight),
@@ -195,34 +205,35 @@ func (m Model) renderSpecSummary() string {
 	}
 
 	if stats := m.renderFactStats(); stats != "" {
-		panels = append(panels, m.renderPanel("Scan Evidence", stats, styles.panel, m.singlePanelWidth()))
+		panels = append(panels, m.renderPanel(s.SpecPanelEvidence, stats, styles.panel, m.singlePanelWidth()))
 	}
 	if questions := m.renderOpenQuestions(); questions != "" {
-		panels = append(panels, m.renderPanel("Open Questions", questions, styles.panelDanger, m.singlePanelWidth()))
+		panels = append(panels, m.renderPanel(s.SpecPanelQuestions, questions, styles.panelDanger, m.singlePanelWidth()))
 	}
 
 	return strings.Join(panels, "\n\n")
 }
 
 func (m Model) renderPromptPreview() string {
+	s := m.t()
 	if m.compilingPrompt {
 		body := strings.Join([]string{
-			metricLine("Status", "Compiling the final prompt"),
-			metricLine("Goal", valueOrFallback(m.projectSpec.Goal, "Not available")),
-			styles.muted.Render("The prompt will appear here as soon as compilation finishes."),
+			metricLine(s.PromptStatusLabel, s.PromptCompiling),
+			metricLine(s.SpecPanelGoal, valueOrFallback(m.projectSpec.Goal, s.SpecGoalFallback)),
+			styles.muted.Render(s.PromptWaiting),
 		}, "\n")
-		return m.renderPanel("Prompt Compiler", body, styles.panelEmphasis, m.singlePanelWidth())
+		return m.renderPanel(s.PromptPanelCompiler, body, styles.panelEmphasis, m.singlePanelWidth())
 	}
 
 	if !m.bundle.Ready() {
-		lines := []string{styles.text.Render("Prompt output is not ready yet.")}
+		lines := []string{styles.text.Render(s.PromptNotReady)}
 		if len(m.bundle.BlockingQuestions) > 0 {
-			lines = append(lines, "", styles.panelTitle.Render("Blocking Questions"))
+			lines = append(lines, "", styles.panelTitle.Render(s.PromptBlockingQTitle))
 			for _, question := range m.bundle.BlockingQuestions {
 				lines = append(lines, "• "+question.Question)
 			}
 		}
-		return m.renderPanel("Prompt Status", strings.Join(lines, "\n"), styles.panelDanger, m.singlePanelWidth())
+		return m.renderPanel(s.PromptPanelStatus, strings.Join(lines, "\n"), styles.panelDanger, m.singlePanelWidth())
 	}
 
 	lines := strings.Split(m.bundle.PromptText, "\n")
@@ -241,10 +252,10 @@ func (m Model) renderPromptPreview() string {
 	}
 
 	meta := []string{
-		metricLine("Output language", valueOrFallback(m.bundle.OutputLanguage, "English")),
-		metricLine("Export path", valueOrFallback(m.outputPath, "prompt.txt")),
-		metricLine("Visible lines", fmt.Sprintf("%d-%d of %d", lineNumber(start), lineNumber(end-1), len(lines))),
-		metricLine("Scroll", fmt.Sprintf("%d / %d", m.promptScroll, m.maxPromptScroll())),
+		metricLine(s.PromptLangLabel, valueOrFallback(m.bundle.OutputLanguage, "English")),
+		metricLine(s.PromptExportLabel, valueOrFallback(m.outputPath, "prompt.txt")),
+		metricLine(s.PromptVisibleLabel, fmt.Sprintf(s.FmtVisibleLines, lineNumber(start), lineNumber(end-1), len(lines))),
+		metricLine(s.PromptScrollLabel, fmt.Sprintf(s.FmtScrollPos, m.promptScroll, m.maxPromptScroll())),
 	}
 	if len(m.bundle.Sections) > 0 {
 		sectionNames := make([]string, 0, len(m.bundle.Sections))
@@ -254,65 +265,77 @@ func (m Model) renderPromptPreview() string {
 			}
 		}
 		if len(sectionNames) > 0 {
-			meta = append(meta, metricLine("Sections", strings.Join(sectionNames, ", ")))
+			meta = append(meta, metricLine(s.PromptSectionsLabel, strings.Join(sectionNames, ", ")))
 		}
 	}
 
-	preview := m.renderPanel("Prompt Preview", styles.codeBox.Width(m.embeddedBoxWidth(styles.panelEmphasis, styles.codeBox, m.panelWidth())).Render(strings.Join(visible, "\n")), styles.panelEmphasis, m.panelWidth())
-	summary := m.renderPanel("Preview Metadata", strings.Join(meta, "\n"), styles.panel, m.panelWidth())
+	lw, rw := m.splitWidths()
+	preview := m.renderPanel(s.PromptPanelPreview, styles.codeBox.Width(m.embeddedBoxWidth(styles.panelEmphasis, styles.codeBox, rw)).Render(strings.Join(visible, "\n")), styles.panelEmphasis, rw)
+	summary := m.renderPanel(s.PromptPanelMeta, strings.Join(meta, "\n"), styles.panel, lw)
 	return m.renderColumns(summary, preview)
 }
 
 func (m Model) renderDone() string {
+	s := m.t()
 	details := []string{
-		metricLine("Output path", valueOrFallback(m.lastExportedPath, m.outputPath)),
-		metricLine("Prompt length", fmt.Sprintf("%d characters", len(m.bundle.PromptText))),
-		metricLine("Next step", "Use the exported prompt as the build brief for your code generation workflow"),
+		metricLine(s.DoneOutputPath, valueOrFallback(m.lastExportedPath, m.outputPath)),
+		metricLine(s.DonePromptLen, fmt.Sprintf(s.FmtPromptLen, len(m.bundle.PromptText))),
+		metricLine(s.DoneNextStep, s.DoneNextStepVal),
 	}
-	return m.renderPanel("Export Complete", strings.Join(details, "\n"), styles.panelSuccess, m.singlePanelWidth())
+	return m.renderPanel(s.DonePanelTitle, strings.Join(details, "\n"), styles.panelSuccess, m.singlePanelWidth())
 }
 
 func (m Model) renderKeyHints() string {
+	s := m.t()
+	langToggle := []string{
+		joinKeyHints("ctrl+l"),
+		styles.muted.Render(s.HintToggleLang),
+	}
 	switch m.state {
 	case StatePathInput:
-		return strings.Join([]string{
+		parts := []string{
 			joinKeyHints("Enter"),
-			styles.muted.Render("start scan"),
+			styles.muted.Render(s.HintStartScan),
 			joinKeyHints("q"),
-			styles.muted.Render("quit"),
-		}, "  ")
+			styles.muted.Render(s.HintQuit),
+		}
+		return strings.Join(append(parts, langToggle...), "  ")
 	case StateScanning:
-		return strings.Join([]string{
+		parts := []string{
 			joinKeyHints("Esc"),
-			styles.muted.Render("cancel run"),
+			styles.muted.Render(s.HintCancelRun),
 			joinKeyHints("Ctrl+C"),
-			styles.muted.Render("quit"),
-		}, "  ")
+			styles.muted.Render(s.HintQuit),
+		}
+		return strings.Join(append(parts, langToggle...), "  ")
 	case StateSpecSummary:
-		return strings.Join([]string{
+		parts := []string{
 			joinKeyHints("Enter", "g"),
-			styles.muted.Render("compile prompt"),
+			styles.muted.Render(s.HintCompilePrompt),
 			joinKeyHints("Esc"),
-			styles.muted.Render("restart"),
-		}, "  ")
+			styles.muted.Render(s.HintRestart),
+		}
+		return strings.Join(append(parts, langToggle...), "  ")
 	case StatePromptPreview:
-		return strings.Join([]string{
+		parts := []string{
 			joinKeyHints("j", "k", "PgUp", "PgDn"),
-			styles.muted.Render("scroll"),
+			styles.muted.Render(s.HintScroll),
 			joinKeyHints("e"),
-			styles.muted.Render("export"),
+			styles.muted.Render(s.HintExport),
 			joinKeyHints("Esc"),
-			styles.muted.Render("back"),
-		}, "  ")
+			styles.muted.Render(s.HintBack),
+		}
+		return strings.Join(append(parts, langToggle...), "  ")
 	case StateDone:
-		return strings.Join([]string{
+		parts := []string{
 			joinKeyHints("r"),
-			styles.muted.Render("new run"),
+			styles.muted.Render(s.HintNewRun),
 			joinKeyHints("Enter", "q"),
-			styles.muted.Render("quit"),
-		}, "  ")
+			styles.muted.Render(s.HintQuit),
+		}
+		return strings.Join(append(parts, langToggle...), "  ")
 	default:
-		return ""
+		return strings.Join(langToggle, "  ")
 	}
 }
 
@@ -327,13 +350,14 @@ func (m Model) renderFactStats() string {
 	if m.facts.RootPath == "" {
 		return ""
 	}
+	s := m.t()
 	observed, inferred, missing := summarizeSignals(m.facts.Signals)
 	lines := []string{
-		metricLine("Root path", m.facts.RootPath),
-		metricLine("Documents", fmt.Sprintf("%d", len(m.facts.Docs))),
-		metricLine("Entry points", fmt.Sprintf("%d", len(m.facts.EntryPoints))),
-		metricLine("Snippets", fmt.Sprintf("%d", len(m.facts.Snippets))),
-		metricLine("Constraints", fmt.Sprintf("%d", len(m.facts.Constraints))),
+		metricLine(s.StatRootPath, m.facts.RootPath),
+		metricLine(s.StatDocuments, fmt.Sprintf("%d", len(m.facts.Docs))),
+		metricLine(s.StatEntryPoints, fmt.Sprintf("%d", len(m.facts.EntryPoints))),
+		metricLine(s.StatSnippets, fmt.Sprintf("%d", len(m.facts.Snippets))),
+		metricLine(s.StatConstraints, fmt.Sprintf("%d", len(m.facts.Constraints))),
 		"",
 		strings.Join([]string{
 			signalBadge(spec.SignalObserved), styles.muted.Render(fmt.Sprintf("%d", observed)),
@@ -344,7 +368,7 @@ func (m Model) renderFactStats() string {
 		}, ""),
 	}
 	if m.facts.ScanMeta.Truncated {
-		lines = append(lines, "", styles.statusWarning.Render("Scan output was truncated to stay within the current budget."))
+		lines = append(lines, "", styles.statusWarning.Render(s.StatTruncated))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -353,69 +377,76 @@ func (m Model) renderOpenQuestions() string {
 	if len(m.projectSpec.OpenQuestions) == 0 {
 		return ""
 	}
+	s := m.t()
 	lines := make([]string, 0, len(m.projectSpec.OpenQuestions))
 	for _, question := range m.projectSpec.OpenQuestions {
 		prefix := "•"
 		if question.Blocking {
-			prefix = "• [blocking]"
+			prefix = "• " + s.SpecBlockingPrefix
 		}
 		lines = append(lines, fmt.Sprintf("%s %s", prefix, question.Question))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func formatTechProfile(profile spec.TechProfile) string {
+func formatTechProfile(s Strings, profile spec.TechProfile) string {
 	lines := []string{
-		metricLine("Platform", valueOrFallback(profile.Platform, "Unknown")),
-		metricLine("Languages", joinOrFallback(profile.Languages)),
-		metricLine("Frameworks", joinOrFallback(profile.Frameworks)),
-		metricLine("Build system", valueOrFallback(profile.BuildSystem, "Unknown")),
-		metricLine("Package manager", valueOrFallback(profile.PackageManager, "Unknown")),
-		metricLine("Integrations", joinOrFallback(profile.ExternalIntegrations)),
+		metricLine(s.TechPlatform, valueOrFallback(profile.Platform, s.SpecUnknown)),
+		metricLine(s.TechLanguages, joinOrFallback(profile.Languages, s.SpecNone)),
+		metricLine(s.TechFrameworks, joinOrFallback(profile.Frameworks, s.SpecNone)),
+		metricLine(s.TechBuildSystem, valueOrFallback(profile.BuildSystem, s.SpecUnknown)),
+		metricLine(s.TechPackageManager, valueOrFallback(profile.PackageManager, s.SpecUnknown)),
+		metricLine(s.TechIntegrations, joinOrFallback(profile.ExternalIntegrations, s.SpecNone)),
 	}
 	return strings.Join(lines, "\n")
 }
 
-func formatModules(modules []spec.ModuleSpec) string {
+func formatModules(s Strings, modules []spec.ModuleSpec) string {
 	if len(modules) == 0 {
-		return styles.muted.Render("None")
+		return styles.muted.Render(s.SpecNone)
 	}
 	lines := make([]string, 0, len(modules))
 	for _, module := range modules {
-		lines = append(lines, fmt.Sprintf("• %s\n  %s", valueOrFallback(module.Name, "Unnamed module"), valueOrFallback(module.Responsibility, "No summary")))
+		lines = append(lines, fmt.Sprintf("• %s\n  %s",
+			valueOrFallback(module.Name, s.SpecUnnamedModule),
+			valueOrFallback(module.Responsibility, s.SpecNoSummary),
+		))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func formatFlows(flows []spec.KeyFlow) string {
+func formatFlows(s Strings, flows []spec.KeyFlow) string {
 	if len(flows) == 0 {
-		return styles.muted.Render("None")
+		return styles.muted.Render(s.SpecNone)
 	}
 	lines := make([]string, 0, len(flows))
 	for _, flow := range flows {
-		lines = append(lines, fmt.Sprintf("• %s\n  %s", valueOrFallback(flow.Name, "Unnamed flow"), valueOrFallback(flow.Summary, "No summary")))
+		lines = append(lines, fmt.Sprintf("• %s\n  %s",
+			valueOrFallback(flow.Name, s.SpecUnnamedFlow),
+			valueOrFallback(flow.Summary, s.SpecNoSummary),
+		))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func formatConstraints(constraints []spec.Constraint) string {
+func formatConstraints(s Strings, constraints []spec.Constraint) string {
 	if len(constraints) == 0 {
-		return styles.muted.Render("None")
+		return styles.muted.Render(s.SpecNone)
 	}
 	lines := make([]string, 0, len(constraints))
 	for _, constraint := range constraints {
-		lines = append(lines, "• "+valueOrFallback(constraint.Text, "Unnamed constraint"))
+		lines = append(lines, "• "+valueOrFallback(constraint.Text, s.SpecUnnamedConstraint))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func formatAcceptanceChecks(checks []spec.AcceptanceCheck) string {
+func formatAcceptanceChecks(s Strings, checks []spec.AcceptanceCheck) string {
 	if len(checks) == 0 {
-		return styles.muted.Render("None")
+		return styles.muted.Render(s.SpecNone)
 	}
 	lines := make([]string, 0, len(checks))
 	for _, check := range checks {
-		lines = append(lines, "• "+valueOrFallback(check.Description, "Unnamed acceptance check"))
+		lines = append(lines, "• "+valueOrFallback(check.Description, s.SpecUnnamedCheck))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -427,9 +458,9 @@ func valueOrFallback(value, fallback string) string {
 	return value
 }
 
-func joinOrFallback(values []string) string {
+func joinOrFallback(values []string, fallback string) string {
 	if len(values) == 0 {
-		return "None"
+		return fallback
 	}
 	return strings.Join(values, ", ")
 }
@@ -457,12 +488,23 @@ func (m Model) layoutWidth() int {
 	return max(60, safe)
 }
 
-func (m Model) panelWidth() int {
+// splitWidths returns the left and right panel widths for a two-column layout.
+// In wide mode the two values sum exactly to layoutWidth(); in narrow mode both
+// equal singlePanelWidth() so callers can stack them without knowing the mode.
+func (m Model) splitWidths() (left, right int) {
 	total := m.layoutWidth()
 	if total >= 100 {
-		return total / 2
+		left = total / 2
+		right = total - left // handles odd totals; left+right == total
+		return
 	}
-	return m.singlePanelWidth()
+	w := m.singlePanelWidth()
+	return w, w
+}
+
+func (m Model) panelWidth() int {
+	left, _ := m.splitWidths()
+	return left
 }
 
 func (m Model) singlePanelWidth() int {

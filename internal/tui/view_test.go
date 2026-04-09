@@ -88,19 +88,20 @@ func TestRenderDonePrefersExportedPath(t *testing.T) {
 }
 
 func TestFormatHelpersReturnFallbacksForEmptyValues(t *testing.T) {
-	if got := formatModules(nil); !strings.Contains(got, "None") {
+	s := stringsEN()
+	if got := formatModules(s, nil); !strings.Contains(got, "None") {
 		t.Fatalf("formatModules(nil) = %q", got)
 	}
-	if got := formatFlows(nil); !strings.Contains(got, "None") {
+	if got := formatFlows(s, nil); !strings.Contains(got, "None") {
 		t.Fatalf("formatFlows(nil) = %q", got)
 	}
-	if got := formatConstraints(nil); !strings.Contains(got, "None") {
+	if got := formatConstraints(s, nil); !strings.Contains(got, "None") {
 		t.Fatalf("formatConstraints(nil) = %q", got)
 	}
-	if got := formatAcceptanceChecks(nil); !strings.Contains(got, "None") {
+	if got := formatAcceptanceChecks(s, nil); !strings.Contains(got, "None") {
 		t.Fatalf("formatAcceptanceChecks(nil) = %q", got)
 	}
-	if got := joinOrFallback(nil); got != "None" {
+	if got := joinOrFallback(nil, "None"); got != "None" {
 		t.Fatalf("joinOrFallback(nil) = %q", got)
 	}
 	if got := valueOrFallback("   ", "fallback"); got != "fallback" {
