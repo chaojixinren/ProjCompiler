@@ -25,6 +25,22 @@ type TechProfile struct {
 type ImplementationShape struct {
 	CoreModules []ModuleSpec
 	KeyFlows    []KeyFlow
+	APIRoutes   []APIRoute
+	DataFlows   []DataFlow
+}
+
+type APIRoute struct {
+	Method     string
+	Path       string
+	Handler    string
+	Middleware []string
+	Signal     FactSignal
+}
+
+type DataFlow struct {
+	Name   string
+	Steps  []string
+	Signal FactSignal
 }
 
 type ModuleSpec struct {
@@ -154,11 +170,13 @@ type UnderstandingDocument struct {
 type UnderstandingSymbolKind string
 
 const (
-	UnderstandingSymbolKindPackage  UnderstandingSymbolKind = "package"
-	UnderstandingSymbolKindFunction UnderstandingSymbolKind = "function"
-	UnderstandingSymbolKindMethod   UnderstandingSymbolKind = "method"
-	UnderstandingSymbolKindImport   UnderstandingSymbolKind = "import"
-	UnderstandingSymbolKindModule   UnderstandingSymbolKind = "module"
+	UnderstandingSymbolKindPackage   UnderstandingSymbolKind = "package"
+	UnderstandingSymbolKindFunction  UnderstandingSymbolKind = "function"
+	UnderstandingSymbolKindMethod    UnderstandingSymbolKind = "method"
+	UnderstandingSymbolKindImport    UnderstandingSymbolKind = "import"
+	UnderstandingSymbolKindModule    UnderstandingSymbolKind = "module"
+	UnderstandingSymbolKindStruct    UnderstandingSymbolKind = "struct"
+	UnderstandingSymbolKindInterface UnderstandingSymbolKind = "interface"
 )
 
 type Span struct {
@@ -186,11 +204,12 @@ type UnderstandingSymbol struct {
 type UnderstandingRelationType string
 
 const (
-	UnderstandingRelationContains  UnderstandingRelationType = "contains"
-	UnderstandingRelationImports   UnderstandingRelationType = "imports"
-	UnderstandingRelationCalls     UnderstandingRelationType = "calls"
-	UnderstandingRelationReadsEnv  UnderstandingRelationType = "reads_env"
-	UnderstandingRelationEntryFlow UnderstandingRelationType = "entry_flow"
+	UnderstandingRelationContains     UnderstandingRelationType = "contains"
+	UnderstandingRelationImports      UnderstandingRelationType = "imports"
+	UnderstandingRelationCalls        UnderstandingRelationType = "calls"
+	UnderstandingRelationReadsEnv     UnderstandingRelationType = "reads_env"
+	UnderstandingRelationEntryFlow    UnderstandingRelationType = "entry_flow"
+	UnderstandingRelationDefinesField UnderstandingRelationType = "defines_field"
 )
 
 type UnderstandingRelation struct {

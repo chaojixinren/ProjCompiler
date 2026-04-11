@@ -129,7 +129,9 @@ Return JSON only with this shape:
   },
   "implementation_shape": {
     "core_modules": [{"name": "string", "responsibility": "string"}],
-    "key_flows": [{"name": "string", "summary": "string"}]
+    "key_flows": [{"name": "string", "summary": "string"}],
+    "api_routes": [{"method": "string", "path": "string", "handler": "string", "middleware": ["string"]}],
+    "data_flows": [{"name": "string", "steps": ["string"]}]
   },
   "critical_constraints": ["string"],
   "acceptance_checks": ["string"],
@@ -224,6 +226,30 @@ func parseAnalyzerResponse(raw string) (spec.ProjectSpec, error) {
 			Name:    strings.TrimSpace(flow.Name),
 			Summary: strings.TrimSpace(flow.Summary),
 			Signal:  spec.InferredSignal(0.7, "Synthesized by analyzer model from repository facts"),
+		})
+	}
+
+	for _, route := range decoded.ImplementationShape.APIRoutes {
+		if strings.TrimSpace(route.Path) == "" {
+			continue
+		}
+		projectSpec.ImplementationShape.APIRoutes = append(projectSpec.ImplementationShape.APIRoutes, spec.APIRoute{
+			Method:     strings.TrimSpace(route.Method),
+			Path:       strings.TrimSpace(route.Path),
+			Handler:    strings.TrimSpace(route.Handler),
+			Middleware: nonEmptyStrings(route.Middleware),
+			Signal:     spec.InferredSignal(0.7, "Synthesized by analyzer model from repository facts"),
+		})
+	}
+
+	for _, df := range decoded.ImplementationShape.DataFlows {
+		if strings.TrimSpace(df.Name) == "" || len(df.Steps) == 0 {
+			continue
+		}
+		projectSpec.ImplementationShape.DataFlows = append(projectSpec.ImplementationShape.DataFlows, spec.DataFlow{
+			Name:   strings.TrimSpace(df.Name),
+			Steps:  nonEmptyStrings(df.Steps),
+			Signal: spec.InferredSignal(0.7, "Synthesized by analyzer model from repository facts"),
 		})
 	}
 
@@ -547,6 +573,12 @@ func mergeProjectSpec(baseline, llmSpec spec.ProjectSpec) spec.ProjectSpec {
 	if len(llmSpec.ImplementationShape.KeyFlows) > 0 {
 		merged.ImplementationShape.KeyFlows = llmSpec.ImplementationShape.KeyFlows
 	}
+	if len(llmSpec.ImplementationShape.APIRoutes) > 0 {
+		merged.ImplementationShape.APIRoutes = llmSpec.ImplementationShape.APIRoutes
+	}
+	if len(llmSpec.ImplementationShape.DataFlows) > 0 {
+		merged.ImplementationShape.DataFlows = llmSpec.ImplementationShape.DataFlows
+	}
 	if len(llmSpec.CriticalConstraints) > 0 {
 		merged.CriticalConstraints = llmSpec.CriticalConstraints
 	}
@@ -667,6 +699,16 @@ type analyzerResponse struct {
 			Name    string `json:"name"`
 			Summary string `json:"summary"`
 		} `json:"key_flows"`
+		APIRoutes []struct {
+			Method     string   `json:"method"`
+			Path       string   `json:"path"`
+			Handler    string   `json:"handler"`
+			Middleware []string `json:"middleware"`
+		} `json:"api_routes"`
+		DataFlows []struct {
+			Name  string   `json:"name"`
+			Steps []string `json:"steps"`
+		} `json:"data_flows"`
 	} `json:"implementation_shape"`
 	CriticalConstraints []string `json:"critical_constraints"`
 	AcceptanceChecks    []string `json:"acceptance_checks"`

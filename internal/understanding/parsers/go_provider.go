@@ -2,6 +2,7 @@ package parsers
 
 import (
 	"context"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -59,6 +60,7 @@ func (p *GoProvider) Parse(ctx context.Context, file types.File, src []byte) (Pa
 		EvidenceIDs:   []string{pkgEvidence.ID},
 	})
 
+	stdlibImports := make(map[string]bool, len(parsed.Imports))
 	for _, imp := range parsed.Imports {
 		if err := ctx.Err(); err != nil {
 			return ParseResult{}, err
@@ -66,6 +68,17 @@ func (p *GoProvider) Parse(ctx context.Context, file types.File, src []byte) (Pa
 		name := strings.Trim(imp.Path.Value, `"`)
 		if name == "" {
 			continue
+		}
+		isStdlib := !strings.Contains(name, ".")
+		var localName string
+		if imp.Name != nil && imp.Name.Name != "_" && imp.Name.Name != "." {
+			localName = imp.Name.Name
+		} else if imp.Name == nil {
+			parts := strings.Split(name, "/")
+			localName = parts[len(parts)-1]
+		}
+		if localName != "" && isStdlib {
+			stdlibImports[localName] = true
 		}
 		span := nodeSpan(fset, imp)
 		ev := newEvidence(file, "go-ast.import", span, name)
@@ -115,6 +128,9 @@ func (p *GoProvider) Parse(ctx context.Context, file types.File, src []byte) (Pa
 				if !ok {
 					return true
 				}
+				if skipCall(call, stdlibImports) {
+					return true
+				}
 				toRef := callTarget(call)
 				if toRef == "" {
 					return true
@@ -135,11 +151,193 @@ func (p *GoProvider) Parse(ctx context.Context, file types.File, src []byte) (Pa
 				})
 				return true
 			})
+
+		case *ast.GenDecl:
+			if decl.Tok != token.TYPE {
+				break
+			}
+			for _, typeSpec := range decl.Specs {
+				ts, ok := typeSpec.(*ast.TypeSpec)
+				if !ok || ts.Name == nil {
+					continue
+				}
+				p.extractTypeDecl(file, parsed.Name.Name, fset, pkgID, ts, &out)
+			}
 		}
 		return true
 	})
 
 	return out, nil
+}
+
+var goBuiltins = map[string]bool{
+	"append":  true,
+	"cap":     true,
+	"clear":   true,
+	"close":   true,
+	"complex": true,
+	"copy":    true,
+	"delete":  true,
+	"imag":    true,
+	"len":     true,
+	"make":    true,
+	"max":     true,
+	"min":     true,
+	"new":     true,
+	"panic":   true,
+	"print":   true,
+	"println": true,
+	"real":    true,
+	"recover": true,
+	"error":   true,
+}
+
+func skipCall(call *ast.CallExpr, stdlibImports map[string]bool) bool {
+	switch expr := call.Fun.(type) {
+	case *ast.Ident:
+		return goBuiltins[expr.Name]
+	case *ast.SelectorExpr:
+		switch x := expr.X.(type) {
+		case *ast.Ident:
+			return stdlibImports[x.Name]
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func (p *GoProvider) extractTypeDecl(file types.File, packageName string, fset *token.FileSet, pkgID string, ts *ast.TypeSpec, out *ParseResult) {
+	name := ts.Name.Name
+	qualified := packageName + "." + name
+	span := nodeSpan(fset, ts)
+
+	var kind types.SymbolKind
+	switch ts.Type.(type) {
+	case *ast.StructType:
+		kind = types.SymbolKindStruct
+	case *ast.InterfaceType:
+		kind = types.SymbolKindInterface
+	default:
+		return
+	}
+
+	symID := types.NewID(file.ID, string(kind), qualified)
+	ev := newEvidence(file, "go-ast.type", span, qualified)
+	out.Evidences = append(out.Evidences, ev)
+	conf := newConfidence("observed", 1.0, "ast-type-decl")
+	out.Confidences = append(out.Confidences, conf)
+
+	out.Symbols = append(out.Symbols, types.Symbol{
+		ID:            symID,
+		FileID:        file.ID,
+		Kind:          kind,
+		Name:          name,
+		QualifiedName: qualified,
+		PackageName:   packageName,
+		Span:          span,
+		SourceCapture: "@definition.type",
+		EvidenceIDs:   []string{ev.ID},
+	})
+	out.Relations = append(out.Relations, types.Relation{
+		ID:           types.NewID(pkgID, "contains", symID),
+		Type:         types.RelationContains,
+		FromID:       pkgID,
+		ToID:         symID,
+		Resolver:     "go-ast",
+		ConfidenceID: conf.ID,
+		EvidenceIDs:  []string{ev.ID},
+	})
+
+	switch st := ts.Type.(type) {
+	case *ast.StructType:
+		if st.Fields == nil {
+			break
+		}
+		for _, field := range st.Fields.List {
+			fieldType := formatFieldType(field.Type)
+			for _, ident := range field.Names {
+				fieldRef := ident.Name + " " + fieldType
+				fieldConf := newConfidence("observed", 1.0, "ast-struct-field")
+				out.Confidences = append(out.Confidences, fieldConf)
+				out.Relations = append(out.Relations, types.Relation{
+					ID:           types.NewID(symID, "field", ident.Name),
+					Type:         types.RelationDefinesField,
+					FromID:       symID,
+					ToRef:        fieldRef,
+					Resolver:     "go-ast",
+					ConfidenceID: fieldConf.ID,
+					EvidenceIDs:  []string{ev.ID},
+				})
+			}
+			if len(field.Names) == 0 {
+				fieldRef := formatFieldType(field.Type)
+				fieldConf := newConfidence("observed", 1.0, "ast-struct-embed")
+				out.Confidences = append(out.Confidences, fieldConf)
+				out.Relations = append(out.Relations, types.Relation{
+					ID:           types.NewID(symID, "embed", fieldRef),
+					Type:         types.RelationDefinesField,
+					FromID:       symID,
+					ToRef:        fieldRef,
+					Resolver:     "go-ast",
+					ConfidenceID: fieldConf.ID,
+					EvidenceIDs:  []string{ev.ID},
+				})
+			}
+		}
+
+	case *ast.InterfaceType:
+		if st.Methods == nil {
+			break
+		}
+		for _, method := range st.Methods.List {
+			for _, ident := range method.Names {
+				methodRef := ident.Name + "()"
+				methodConf := newConfidence("observed", 1.0, "ast-iface-method")
+				out.Confidences = append(out.Confidences, methodConf)
+				out.Relations = append(out.Relations, types.Relation{
+					ID:           types.NewID(symID, "method", ident.Name),
+					Type:         types.RelationDefinesField,
+					FromID:       symID,
+					ToRef:        methodRef,
+					Resolver:     "go-ast",
+					ConfidenceID: methodConf.ID,
+					EvidenceIDs:  []string{ev.ID},
+				})
+			}
+		}
+	}
+}
+
+func formatFieldType(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		return "*" + formatFieldType(t.X)
+	case *ast.SelectorExpr:
+		return formatFieldType(t.X) + "." + t.Sel.Name
+	case *ast.ArrayType:
+		return "[]" + formatFieldType(t.Elt)
+	case *ast.MapType:
+		return fmt.Sprintf("map[%s]%s", formatFieldType(t.Key), formatFieldType(t.Value))
+	case *ast.InterfaceType:
+		return "interface{}"
+	case *ast.FuncType:
+		return "func(...)"
+	case *ast.ChanType:
+		return "chan " + formatFieldType(t.Value)
+	case *ast.StructType:
+		return "struct{...}"
+	case *ast.Ellipsis:
+		return "..." + formatFieldType(t.Elt)
+	case *ast.ParenExpr:
+		return "(" + formatFieldType(t.X) + ")"
+	case *ast.IndexExpr:
+		return formatFieldType(t.X) + "[" + formatFieldType(t.Index) + "]"
+	default:
+		return "any"
+	}
 }
 
 func (p *GoProvider) functionSymbol(file types.File, packageName string, fset *token.FileSet, decl *ast.FuncDecl) types.Symbol {

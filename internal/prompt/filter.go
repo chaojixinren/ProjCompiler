@@ -1,7 +1,9 @@
 package prompt
 
 import (
+	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -24,7 +26,7 @@ var genericConstraintFragments = []string{
 }
 
 func filterPromptSections(projectSpec spec.ProjectSpec) []spec.PromptSection {
-	sections := make([]spec.PromptSection, 0, 8)
+	sections := make([]spec.PromptSection, 0, 12)
 
 	if goal := buildGoalSection(projectSpec); goal != "" {
 		sections = append(sections, spec.PromptSection{
@@ -40,10 +42,45 @@ func filterPromptSections(projectSpec spec.ProjectSpec) []spec.PromptSection {
 		})
 	}
 
+	if structure := buildProjectStructureSection(projectSpec.Understanding); structure != "" {
+		sections = append(sections, spec.PromptSection{
+			Title:   "Project structure",
+			Content: structure,
+		})
+	}
+
 	if shape := buildImplementationSection(projectSpec); shape != "" {
 		sections = append(sections, spec.PromptSection{
 			Title:   "Non-obvious implementation shape",
 			Content: shape,
+		})
+	}
+
+	if dataStructs := buildDataStructuresSection(projectSpec.Understanding); dataStructs != "" {
+		sections = append(sections, spec.PromptSection{
+			Title:   "Key data structures",
+			Content: dataStructs,
+		})
+	}
+
+	if routes := buildAPIRoutesSection(projectSpec); routes != "" {
+		sections = append(sections, spec.PromptSection{
+			Title:   "API routes",
+			Content: routes,
+		})
+	}
+
+	if dataFlow := buildDataFlowSection(projectSpec); dataFlow != "" {
+		sections = append(sections, spec.PromptSection{
+			Title:   "Data flow",
+			Content: dataFlow,
+		})
+	}
+
+	if deps := buildModuleDependenciesSection(projectSpec.Understanding); deps != "" {
+		sections = append(sections, spec.PromptSection{
+			Title:   "Module dependencies",
+			Content: deps,
 		})
 	}
 
@@ -58,13 +95,6 @@ func filterPromptSections(projectSpec spec.ProjectSpec) []spec.PromptSection {
 		sections = append(sections, spec.PromptSection{
 			Title:   "Core symbols",
 			Content: symbols,
-		})
-	}
-
-	if relations := buildUnderstandingRelationsSection(projectSpec.Understanding); relations != "" {
-		sections = append(sections, spec.PromptSection{
-			Title:   "Call graph",
-			Content: relations,
 		})
 	}
 
@@ -273,36 +303,51 @@ func buildUnderstandingFlowsSection(understanding spec.UnderstandingSpec) string
 		return ""
 	}
 
+	symbolNames := makeSymbolNameLookup(understanding.Symbols)
+
 	lines := make([]string, 0, util.Min(5, len(understanding.Flows)))
 	for _, flow := range understanding.Flows {
-		name := strings.TrimSpace(flow.Name)
-		if name == "" {
-			continue
-		}
-		trigger := strings.TrimSpace(flow.Trigger)
-		entry := strings.TrimSpace(flow.EntrySymbolID)
-		stepCount := len(flow.StepSymbolIDs)
-
-		var desc string
-		if trigger != "" && entry != "" {
-			desc = name + " triggered by " + trigger + ", starting at " + entry
-		} else if entry != "" {
-			desc = name + " starts at " + entry
-		} else {
-			desc = name
-		}
-
-		if stepCount > 0 {
-			desc += " (" + pluralize(stepCount, "step") + ")"
-		}
-
-		lines = append(lines, bullet(desc))
 		if len(lines) >= 5 {
 			break
+		}
+		const maxSteps = 8
+		stepNames := make([]string, 0, util.Min(maxSteps, len(flow.StepSymbolIDs)))
+		for _, stepID := range flow.StepSymbolIDs {
+			name := symbolNames[stepID]
+			if name == "" {
+				continue
+			}
+			stepNames = append(stepNames, name)
+			if len(stepNames) >= maxSteps {
+				break
+			}
+		}
+		if len(stepNames) > 1 {
+			lines = append(lines, bullet(strings.Join(stepNames, " -> ")))
+		} else if len(stepNames) == 1 {
+			trigger := strings.TrimSpace(flow.Trigger)
+			if trigger == "" {
+				trigger = "entrypoint"
+			}
+			lines = append(lines, bullet(stepNames[0]+" (triggered by "+trigger+")"))
 		}
 	}
 
 	return strings.Join(uniqueLines(lines), "\n")
+}
+
+func makeSymbolNameLookup(symbols []spec.UnderstandingSymbol) map[string]string {
+	lookup := make(map[string]string, len(symbols))
+	for _, symbol := range symbols {
+		name := strings.TrimSpace(symbol.QualifiedName)
+		if name == "" {
+			name = strings.TrimSpace(symbol.Name)
+		}
+		if name != "" {
+			lookup[symbol.ID] = name
+		}
+	}
+	return lookup
 }
 
 func buildUnderstandingSymbolsSection(understanding spec.UnderstandingSpec) string {
@@ -338,30 +383,337 @@ func buildUnderstandingSymbolsSection(understanding spec.UnderstandingSpec) stri
 	return strings.Join(uniqueLines(lines), "\n")
 }
 
-func buildUnderstandingRelationsSection(understanding spec.UnderstandingSpec) string {
-	callLines := make([]string, 0, util.Min(6, len(understanding.Relations)))
-	importLines := make([]string, 0, util.Min(3, len(understanding.Relations)))
+func buildProjectStructureSection(understanding spec.UnderstandingSpec) string {
+	if len(understanding.Files) == 0 {
+		return ""
+	}
 
-	for _, relation := range understanding.Relations {
-		from := strings.TrimSpace(relation.FromID)
-		to := util.FirstNonEmpty(strings.TrimSpace(relation.ToID), strings.TrimSpace(relation.ToRef))
-		if from == "" || to == "" {
+	type dirInfo struct {
+		files     []string
+		languages map[string]int
+	}
+	dirs := make(map[string]*dirInfo)
+	var dirOrder []string
+
+	for _, file := range understanding.Files {
+		switch file.Role {
+		case spec.UnderstandingFileRoleGenerated, spec.UnderstandingFileRoleOther:
 			continue
 		}
-
-		switch relation.Type {
-		case spec.UnderstandingRelationCalls, spec.UnderstandingRelationEntryFlow:
-			callLines = append(callLines, bullet(from+" calls "+to))
-		case spec.UnderstandingRelationImports:
-			importLines = append(importLines, bullet(from+" imports "+to))
+		dir := filepath.Dir(file.Path)
+		if dir == "" || dir == "." {
+			dir = "."
 		}
-
-		if len(callLines) >= 6 && len(importLines) >= 3 {
-			break
+		info, ok := dirs[dir]
+		if !ok {
+			info = &dirInfo{languages: make(map[string]int)}
+			dirs[dir] = info
+			dirOrder = append(dirOrder, dir)
+		}
+		base := filepath.Base(file.Path)
+		info.files = append(info.files, base)
+		lang := file.Language
+		if (lang == "" || lang == "unknown") && base != "" {
+			lang = langFromExt(filepath.Ext(base))
+		}
+		if lang != "" && lang != "unknown" {
+			info.languages[lang]++
 		}
 	}
 
-	lines := append(callLines, importLines...)
+	sort.Strings(dirOrder)
+
+	lines := make([]string, 0, len(dirOrder))
+	for _, dir := range dirOrder {
+		info := dirs[dir]
+		lang := dominantLanguage(info.languages)
+		if len(info.files) <= 6 {
+			label := dir + "/: " + strings.Join(info.files, ", ")
+			lines = append(lines, bullet(label))
+		} else {
+			label := dir + "/: " + pluralize(len(info.files), lang+" file")
+			lines = append(lines, bullet(label))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func langFromExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".go":
+		return "go"
+	case ".js":
+		return "javascript"
+	case ".ts":
+		return "typescript"
+	case ".py":
+		return "python"
+	case ".rs":
+		return "rust"
+	case ".java":
+		return "java"
+	case ".rb":
+		return "ruby"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".cc", ".cxx", ".hpp":
+		return "cpp"
+	case ".cs":
+		return "csharp"
+	case ".md":
+		return "markdown"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".toml":
+		return "toml"
+	case ".mod", ".sum":
+		return "go"
+	default:
+		return ""
+	}
+}
+
+func dominantLanguage(languages map[string]int) string {
+	if len(languages) == 0 {
+		return ""
+	}
+	best := ""
+	bestCount := 0
+	for lang, count := range languages {
+		if count > bestCount {
+			best = lang
+			bestCount = count
+		}
+	}
+	return best
+}
+
+func buildModuleDependenciesSection(understanding spec.UnderstandingSpec) string {
+	if len(understanding.Relations) == 0 {
+		return ""
+	}
+
+	projectPkgs := make(map[string]bool, len(understanding.Symbols))
+	symbolPkg := make(map[string]string, len(understanding.Symbols))
+	for _, sym := range understanding.Symbols {
+		if sym.PackageName != "" {
+			symbolPkg[sym.ID] = sym.PackageName
+			projectPkgs[sym.PackageName] = true
+		}
+	}
+
+	importEdges := make(map[depEdge]bool)
+	callEdges := make(map[depEdge]bool)
+
+	for _, rel := range understanding.Relations {
+		fromPkg := symbolPkg[rel.FromID]
+		if fromPkg == "" {
+			continue
+		}
+		switch rel.Type {
+		case spec.UnderstandingRelationImports:
+			toRef := strings.TrimSpace(rel.ToRef)
+			if toRef == "" {
+				continue
+			}
+			if isStdlibImport(toRef) {
+				continue
+			}
+			importEdges[depEdge{fromPkg, toRef}] = true
+		case spec.UnderstandingRelationCalls, spec.UnderstandingRelationEntryFlow:
+			toPkg := symbolPkg[rel.ToID]
+			if toPkg == "" || toPkg == fromPkg {
+				continue
+			}
+			callEdges[depEdge{fromPkg, toPkg}] = true
+		}
+	}
+
+	lines := make([]string, 0, len(importEdges)+len(callEdges))
+
+	sortedCalls := sortEdges(callEdges)
+	for _, e := range sortedCalls {
+		lines = append(lines, bullet(e.from+" -> "+e.to+" (cross-package call)"))
+	}
+	sortedImports := sortEdges(importEdges)
+	for _, e := range sortedImports {
+		lines = append(lines, bullet(e.from+" imports "+e.to))
+	}
+
+	return strings.Join(uniqueLines(lines), "\n")
+}
+
+func isStdlibImport(path string) bool {
+	if strings.Contains(path, ".") {
+		return false
+	}
+	parts := strings.SplitN(path, "/", 2)
+	first := parts[0]
+	switch first {
+	case "internal", "cmd":
+		return false
+	}
+	return true
+}
+
+type depEdge struct{ from, to string }
+
+func sortEdges(edges map[depEdge]bool) []depEdge {
+	out := make([]depEdge, 0, len(edges))
+	for e := range edges {
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].from != out[j].from {
+			return out[i].from < out[j].from
+		}
+		return out[i].to < out[j].to
+	})
+	return out
+}
+
+func buildDataStructuresSection(understanding spec.UnderstandingSpec) string {
+	if len(understanding.Symbols) == 0 {
+		return ""
+	}
+
+	symbolNames := makeSymbolNameLookup(understanding.Symbols)
+
+	fieldsByOwner := make(map[string][]string)
+	for _, rel := range understanding.Relations {
+		if rel.Type != spec.UnderstandingRelationDefinesField {
+			continue
+		}
+		ownerName := symbolNames[rel.FromID]
+		if ownerName == "" {
+			continue
+		}
+		fieldDesc := strings.TrimSpace(rel.ToRef)
+		if fieldDesc == "" || fieldDesc == "unknown" {
+			continue
+		}
+		fieldsByOwner[ownerName] = append(fieldsByOwner[ownerName], fieldDesc)
+	}
+
+	refCount := make(map[string]int)
+	for _, rel := range understanding.Relations {
+		if rel.ToID != "" {
+			refCount[rel.ToID]++
+		}
+	}
+
+	type candidate struct {
+		sym   spec.UnderstandingSymbol
+		name  string
+		score int
+	}
+	candidates := make([]candidate, 0, 16)
+	for _, sym := range understanding.Symbols {
+		switch sym.Kind {
+		case spec.UnderstandingSymbolKindStruct, spec.UnderstandingSymbolKindInterface:
+		default:
+			continue
+		}
+		name := strings.TrimSpace(sym.QualifiedName)
+		if name == "" {
+			name = strings.TrimSpace(sym.Name)
+		}
+		if name == "" {
+			continue
+		}
+		shortName := strings.TrimSpace(sym.Name)
+		if shortName == "" || !isExported(shortName) {
+			continue
+		}
+		score := len(fieldsByOwner[name]) + refCount[sym.ID]*2
+		if sym.Kind == spec.UnderstandingSymbolKindInterface {
+			score += 3
+		}
+		candidates = append(candidates, candidate{sym, name, score})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
+	})
+
+	const maxTypes = 10
+	lines := make([]string, 0, maxTypes)
+	for _, c := range candidates {
+		if len(lines) >= maxTypes {
+			break
+		}
+		kind := "struct"
+		if c.sym.Kind == spec.UnderstandingSymbolKindInterface {
+			kind = "interface"
+		}
+		fields := fieldsByOwner[c.name]
+		if len(fields) > 6 {
+			fields = fields[:6]
+			fields = append(fields, "...")
+		}
+		if len(fields) > 0 {
+			lines = append(lines, bullet(c.name+" ("+kind+"): "+strings.Join(fields, ", ")))
+		} else {
+			lines = append(lines, bullet(c.name+" ("+kind+")"))
+		}
+	}
+
+	return strings.Join(uniqueLines(lines), "\n")
+}
+
+func isExported(name string) bool {
+	if name == "" {
+		return false
+	}
+	r := rune(name[0])
+	return r >= 'A' && r <= 'Z'
+}
+
+func buildAPIRoutesSection(projectSpec spec.ProjectSpec) string {
+	routes := projectSpec.ImplementationShape.APIRoutes
+	if len(routes) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(routes))
+	for _, route := range routes {
+		if !isPromptWorthySignal(route.Signal) {
+			continue
+		}
+		method := strings.TrimSpace(route.Method)
+		path := strings.TrimSpace(route.Path)
+		handler := strings.TrimSpace(route.Handler)
+		if path == "" {
+			continue
+		}
+		desc := method + " " + path
+		if handler != "" {
+			desc += " -> " + handler
+		}
+		if len(route.Middleware) > 0 {
+			desc += " [" + strings.Join(route.Middleware, ", ") + "]"
+		}
+		lines = append(lines, bullet(strings.TrimSpace(desc)))
+	}
+	return strings.Join(uniqueLines(lines), "\n")
+}
+
+func buildDataFlowSection(projectSpec spec.ProjectSpec) string {
+	flows := projectSpec.ImplementationShape.DataFlows
+	if len(flows) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(flows))
+	for _, flow := range flows {
+		if !isPromptWorthySignal(flow.Signal) {
+			continue
+		}
+		name := strings.TrimSpace(flow.Name)
+		if name == "" || len(flow.Steps) == 0 {
+			continue
+		}
+		lines = append(lines, bullet(name+": "+strings.Join(flow.Steps, " -> ")))
+	}
 	return strings.Join(uniqueLines(lines), "\n")
 }
 

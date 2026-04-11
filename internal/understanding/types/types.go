@@ -34,11 +34,13 @@ type Document = spec.UnderstandingDocument
 type SymbolKind = spec.UnderstandingSymbolKind
 
 const (
-	SymbolKindPackage  SymbolKind = spec.UnderstandingSymbolKindPackage
-	SymbolKindFunction SymbolKind = spec.UnderstandingSymbolKindFunction
-	SymbolKindMethod   SymbolKind = spec.UnderstandingSymbolKindMethod
-	SymbolKindImport   SymbolKind = spec.UnderstandingSymbolKindImport
-	SymbolKindModule   SymbolKind = spec.UnderstandingSymbolKindModule
+	SymbolKindPackage   SymbolKind = spec.UnderstandingSymbolKindPackage
+	SymbolKindFunction  SymbolKind = spec.UnderstandingSymbolKindFunction
+	SymbolKindMethod    SymbolKind = spec.UnderstandingSymbolKindMethod
+	SymbolKindImport    SymbolKind = spec.UnderstandingSymbolKindImport
+	SymbolKindModule    SymbolKind = spec.UnderstandingSymbolKindModule
+	SymbolKindStruct    SymbolKind = spec.UnderstandingSymbolKindStruct
+	SymbolKindInterface SymbolKind = spec.UnderstandingSymbolKindInterface
 )
 
 type Span = spec.Span
@@ -47,11 +49,12 @@ type Symbol = spec.UnderstandingSymbol
 type RelationType = spec.UnderstandingRelationType
 
 const (
-	RelationContains  RelationType = spec.UnderstandingRelationContains
-	RelationImports   RelationType = spec.UnderstandingRelationImports
-	RelationCalls     RelationType = spec.UnderstandingRelationCalls
-	RelationReadsEnv  RelationType = spec.UnderstandingRelationReadsEnv
-	RelationEntryFlow RelationType = spec.UnderstandingRelationEntryFlow
+	RelationContains     RelationType = spec.UnderstandingRelationContains
+	RelationImports      RelationType = spec.UnderstandingRelationImports
+	RelationCalls        RelationType = spec.UnderstandingRelationCalls
+	RelationReadsEnv     RelationType = spec.UnderstandingRelationReadsEnv
+	RelationEntryFlow    RelationType = spec.UnderstandingRelationEntryFlow
+	RelationDefinesField RelationType = spec.UnderstandingRelationDefinesField
 )
 
 type Relation = spec.UnderstandingRelation

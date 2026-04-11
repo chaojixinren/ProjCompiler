@@ -69,8 +69,6 @@ func (m Model) renderHeader() string {
 }
 
 func (m Model) renderBanner() string {
-	// Large ASCII art needs both width and height headroom; otherwise it pushes
-	// the first rows out of view on smaller terminals.
 	if m.height > 0 && m.height < 36 {
 		return styles.banner.Render(m.config.Title)
 	}
@@ -153,8 +151,15 @@ func (m Model) renderLogs() string {
 		return ""
 	}
 	s := m.t()
-	lines := make([]string, 0, len(m.logs))
-	for _, line := range m.logs {
+	logs := m.logs
+	if m.state == StateSpecSummary || m.state == StatePromptPreview {
+		const maxVisibleInContentState = 3
+		if len(logs) > maxVisibleInContentState {
+			logs = logs[len(logs)-maxVisibleInContentState:]
+		}
+	}
+	lines := make([]string, 0, len(logs))
+	for _, line := range logs {
 		lines = append(lines, styles.logLine.Render(line))
 	}
 	return m.renderPanel(s.LogPanelTitle, strings.Join(lines, "\n"), styles.logPanel, m.singlePanelWidth())
@@ -600,7 +605,7 @@ func joinOrFallback(values []string, fallback string) string {
 }
 
 func (m Model) specPageSize() int {
-	return max(4, m.bodyAvailableHeight()-1)
+	return max(3, m.bodyAvailableHeight()-1)
 }
 
 func (m Model) maxSpecScroll() int {

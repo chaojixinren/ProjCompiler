@@ -71,7 +71,7 @@ func (b *Builder) Build(ctx context.Context, input Input) (Output, error) {
 	}
 
 	entrySymbolIDs := b.markEntrypoints(input, &out)
-	out.Flows = append(out.Flows, b.inferEntryFlows(entrySymbolIDs, out.Relations)...)
+	out.Flows = append(out.Flows, b.inferEntryFlows(entrySymbolIDs, out.Relations, out.Symbols)...)
 
 	return out, nil
 }
@@ -226,27 +226,65 @@ func (b *Builder) markEntrypoints(input Input, out *Output) []string {
 	return slices.Compact(entrySymbolIDs)
 }
 
-func (b *Builder) inferEntryFlows(entrySymbolIDs []string, relations []types.Relation) []types.Flow {
+func (b *Builder) inferEntryFlows(entrySymbolIDs []string, relations []types.Relation, symbols []types.Symbol) []types.Flow {
+	symbolNames := make(map[string]string, len(symbols))
+	for _, sym := range symbols {
+		name := strings.TrimSpace(sym.QualifiedName)
+		if name == "" {
+			name = strings.TrimSpace(sym.Name)
+		}
+		if name != "" {
+			symbolNames[sym.ID] = name
+		}
+	}
+
+	callGraph := make(map[string][]string)
+	callEvidence := make(map[string][]string)
+	for _, rel := range relations {
+		if rel.Type != types.RelationCalls || rel.ToID == "" {
+			continue
+		}
+		callGraph[rel.FromID] = append(callGraph[rel.FromID], rel.ToID)
+		callEvidence[rel.FromID] = append(callEvidence[rel.FromID], rel.EvidenceIDs...)
+	}
+
 	flows := make([]types.Flow, 0, len(entrySymbolIDs))
 	for _, entryID := range entrySymbolIDs {
-		flow := types.Flow{
+		entryName := symbolNames[entryID]
+		if entryName == "" {
+			entryName = "entrypoint"
+		}
+
+		const maxDepth = 4
+		const maxSteps = 12
+		visited := map[string]bool{entryID: true}
+		steps := []string{entryID}
+		queue := callGraph[entryID]
+		var evidenceIDs []string
+		evidenceIDs = append(evidenceIDs, callEvidence[entryID]...)
+
+		for depth := 0; depth < maxDepth && len(queue) > 0; depth++ {
+			var nextQueue []string
+			for _, id := range queue {
+				if visited[id] || len(steps) >= maxSteps {
+					continue
+				}
+				visited[id] = true
+				steps = append(steps, id)
+				evidenceIDs = append(evidenceIDs, callEvidence[id]...)
+				nextQueue = append(nextQueue, callGraph[id]...)
+			}
+			queue = nextQueue
+		}
+
+		flows = append(flows, types.Flow{
 			ID:            types.NewID("flow", entryID),
-			Name:          "entry:" + entryID,
+			Name:          entryName,
 			Trigger:       "entrypoint",
 			EntrySymbolID: entryID,
-			StepSymbolIDs: []string{entryID},
-			EvidenceIDs:   nil,
-		}
-		for _, relation := range relations {
-			if relation.Type != types.RelationCalls || relation.FromID != entryID {
-				continue
-			}
-			if relation.ToID != "" {
-				flow.StepSymbolIDs = append(flow.StepSymbolIDs, relation.ToID)
-			}
-			flow.EvidenceIDs = append(flow.EvidenceIDs, relation.EvidenceIDs...)
-		}
-		flows = append(flows, flow)
+			StepSymbolIDs: steps,
+			EvidenceIDs:   evidenceIDs,
+		})
 	}
 	return flows
 }

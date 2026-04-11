@@ -103,6 +103,141 @@ func TestFilterPromptSectionsDeduplicatesConstraintAndShapeLines(t *testing.T) {
 	}
 }
 
+func TestBuildProjectStructureSectionGroupsByDirectory(t *testing.T) {
+	understanding := spec.UnderstandingSpec{
+		Files: []spec.UnderstandingFile{
+			{Path: "internal/config/config.go", Language: "go", Role: spec.UnderstandingFileRoleSource},
+			{Path: "internal/config/config_test.go", Language: "go", Role: spec.UnderstandingFileRoleTest},
+			{Path: "internal/gateway/handler.go", Language: "go", Role: spec.UnderstandingFileRoleSource},
+			{Path: "internal/gateway/router.go", Language: "go", Role: spec.UnderstandingFileRoleSource},
+			{Path: "frontend/src/App.vue", Language: "vue", Role: spec.UnderstandingFileRoleSource},
+			{Path: "generated/proto.go", Language: "go", Role: spec.UnderstandingFileRoleGenerated},
+		},
+	}
+
+	result := buildProjectStructureSection(understanding)
+	if result == "" {
+		t.Fatal("expected non-empty project structure section")
+	}
+	if !strings.Contains(result, "internal/config/") {
+		t.Fatalf("expected config directory in output, got %q", result)
+	}
+	if !strings.Contains(result, "internal/gateway/") {
+		t.Fatalf("expected gateway directory in output, got %q", result)
+	}
+	if !strings.Contains(result, "frontend/src/") {
+		t.Fatalf("expected frontend/src directory in output, got %q", result)
+	}
+	if strings.Contains(result, "generated") {
+		t.Fatalf("expected generated files to be excluded, got %q", result)
+	}
+}
+
+func TestBuildModuleDependenciesSectionBuildsPackageTopology(t *testing.T) {
+	understanding := spec.UnderstandingSpec{
+		Symbols: []spec.UnderstandingSymbol{
+			{ID: "pkg-gateway", Kind: spec.UnderstandingSymbolKindPackage, Name: "gateway", PackageName: "gateway"},
+			{ID: "pkg-config", Kind: spec.UnderstandingSymbolKindPackage, Name: "config", PackageName: "config"},
+		},
+		Relations: []spec.UnderstandingRelation{
+			{Type: spec.UnderstandingRelationImports, FromID: "pkg-gateway", ToRef: "internal/config"},
+			{Type: spec.UnderstandingRelationImports, FromID: "pkg-gateway", ToRef: "net/http"},
+		},
+	}
+
+	result := buildModuleDependenciesSection(understanding)
+	if result == "" {
+		t.Fatal("expected non-empty module dependencies section")
+	}
+	if !strings.Contains(result, "gateway imports internal/config") {
+		t.Fatalf("expected gateway->config import, got %q", result)
+	}
+}
+
+func TestBuildDataStructuresSectionRendersStructs(t *testing.T) {
+	understanding := spec.UnderstandingSpec{
+		Symbols: []spec.UnderstandingSymbol{
+			{ID: "sym-config", Kind: spec.UnderstandingSymbolKindStruct, Name: "Config", QualifiedName: "config.Config"},
+		},
+		Relations: []spec.UnderstandingRelation{
+			{Type: spec.UnderstandingRelationDefinesField, FromID: "sym-config", ToRef: "AccessKey string"},
+			{Type: spec.UnderstandingRelationDefinesField, FromID: "sym-config", ToRef: "Strategy string"},
+		},
+	}
+
+	result := buildDataStructuresSection(understanding)
+	if result == "" {
+		t.Fatal("expected non-empty data structures section")
+	}
+	if !strings.Contains(result, "config.Config (struct)") {
+		t.Fatalf("expected Config struct in output, got %q", result)
+	}
+	if !strings.Contains(result, "AccessKey string") {
+		t.Fatalf("expected AccessKey field in output, got %q", result)
+	}
+}
+
+func TestBuildAPIRoutesSectionRendersRoutes(t *testing.T) {
+	projectSpec := spec.ProjectSpec{
+		ImplementationShape: spec.ImplementationShape{
+			APIRoutes: []spec.APIRoute{
+				{Method: "POST", Path: "/v1/chat/completions", Handler: "gateway.HandleChat", Signal: spec.InferredSignal(0.7, "test")},
+				{Method: "GET", Path: "/health", Handler: "gateway.HandleHealth", Middleware: []string{"auth"}, Signal: spec.InferredSignal(0.7, "test")},
+			},
+		},
+	}
+
+	result := buildAPIRoutesSection(projectSpec)
+	if result == "" {
+		t.Fatal("expected non-empty API routes section")
+	}
+	if !strings.Contains(result, "/v1/chat/completions") {
+		t.Fatalf("expected chat completions route, got %q", result)
+	}
+	if !strings.Contains(result, "[auth]") {
+		t.Fatalf("expected middleware in output, got %q", result)
+	}
+}
+
+func TestBuildDataFlowSectionRendersSteps(t *testing.T) {
+	projectSpec := spec.ProjectSpec{
+		ImplementationShape: spec.ImplementationShape{
+			DataFlows: []spec.DataFlow{
+				{Name: "Request proxy", Steps: []string{"parse request", "transform to Anthropic", "forward upstream", "transform response"}, Signal: spec.InferredSignal(0.7, "test")},
+			},
+		},
+	}
+
+	result := buildDataFlowSection(projectSpec)
+	if result == "" {
+		t.Fatal("expected non-empty data flow section")
+	}
+	if !strings.Contains(result, "parse request -> transform to Anthropic") {
+		t.Fatalf("expected step chain in output, got %q", result)
+	}
+}
+
+func TestBuildUnderstandingFlowsSectionExpandsSteps(t *testing.T) {
+	understanding := spec.UnderstandingSpec{
+		Symbols: []spec.UnderstandingSymbol{
+			{ID: "s1", Name: "main", QualifiedName: "main.main"},
+			{ID: "s2", Name: "Load", QualifiedName: "config.Load"},
+			{ID: "s3", Name: "NewServer", QualifiedName: "gateway.NewServer"},
+		},
+		Flows: []spec.UnderstandingFlow{
+			{ID: "f1", Name: "main", Trigger: "entrypoint", EntrySymbolID: "s1", StepSymbolIDs: []string{"s1", "s2", "s3"}},
+		},
+	}
+
+	result := buildUnderstandingFlowsSection(understanding)
+	if result == "" {
+		t.Fatal("expected non-empty flows section")
+	}
+	if !strings.Contains(result, "main.main -> config.Load -> gateway.NewServer") {
+		t.Fatalf("expected expanded step chain, got %q", result)
+	}
+}
+
 func TestFilterPromptSectionsSkipsLowConfidenceInferredItems(t *testing.T) {
 	projectSpec := spec.ProjectSpec{
 		Goal: "Build a deterministic CLI.",
