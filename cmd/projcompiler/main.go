@@ -24,9 +24,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	exporter := app.NewFileExporter(cfg)
+
 	application := app.New(cfg, app.Services{
 		SpecBuilder:    adkflow.NewSpecBuilder(cfg),
 		PromptCompiler: prompt.NewCompiler(cfg),
+		Exporter:       exporter,
 		AgentAssembler: adkflow.NewAssembler(cfg),
 	})
 	if err := application.Run(); err != nil {

@@ -60,7 +60,7 @@ func (a *Assembler) Build(ctx context.Context) (adkagent.Agent, error) {
 	workflow, err := sequentialagent.New(sequentialagent.Config{
 		AgentConfig: adkagent.Config{
 			Name:        "projcompiler_pipeline",
-			Description: "Runs project-spec synthesis and prompt compilation in a fixed order.",
+			Description: "Runs unified project-spec synthesis and prompt compilation in a fixed order.",
 			SubAgents:   []adkagent.Agent{analyzer, compiler},
 		},
 	})

@@ -61,6 +61,10 @@ func (unimplementedExporter) ExportPrompt(context.Context, spec.PromptBundle, st
 	return "", serviceUnavailable("exporter")
 }
 
+func (unimplementedExporter) ExportSpecDebug(context.Context, spec.ProjectSpec, string) (string, error) {
+	return "", serviceUnavailable("exporter")
+}
+
 type unimplementedAgentAssembler struct{}
 
 func (unimplementedAgentAssembler) Build(context.Context) (adkagent.Agent, error) {

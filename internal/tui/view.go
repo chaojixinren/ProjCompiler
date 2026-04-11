@@ -222,7 +222,7 @@ func (m Model) renderSpecSummary() string {
 		return fullContent
 	}
 
-	start := clamp(m.specScroll, 0, max(0, len(lines)-pageSize))
+	start := clamp(m.specPageScroll, 0, max(0, len(lines)-pageSize))
 	end := min(len(lines), start+pageSize)
 
 	scrollIndicator := styles.muted.Render(
@@ -254,9 +254,18 @@ func (m Model) renderSpecSummaryContent() string {
 	if stats := m.renderFactStats(); stats != "" {
 		panels = append(panels, m.renderPanel(s.SpecPanelEvidence, stats, styles.panel, m.singlePanelWidth()))
 	}
+	if snapshot := m.renderUnderstandingSnapshot(); snapshot != "" {
+		panels = append(panels, m.renderPanel(s.SpecPanelUnderstanding, snapshot, styles.panelEmphasis, m.singlePanelWidth()))
+	}
 	if questions := m.renderOpenQuestions(); questions != "" {
 		panels = append(panels, m.renderPanel(s.SpecPanelQuestions, questions, styles.panelDanger, m.singlePanelWidth()))
 	}
+	panels = append(panels, m.renderPanel(
+		s.SpecPanelExplorer,
+		m.renderSpecExplorer(),
+		styles.panelEmphasis,
+		m.singlePanelWidth(),
+	))
 
 	return strings.Join(panels, "\n\n")
 }
@@ -595,8 +604,11 @@ func (m Model) specPageSize() int {
 }
 
 func (m Model) maxSpecScroll() int {
-	content := m.renderSpecSummaryContent()
-	totalLines := strings.Count(content, "\n") + 1
+	totalLines := m.cachedSpecLineCount
+	if totalLines < 0 {
+		content := m.renderSpecSummaryContent()
+		totalLines = strings.Count(content, "\n") + 1
+	}
 	return max(0, totalLines-m.specPageSize())
 }
 
@@ -748,4 +760,82 @@ func clamp(value, lower, upper int) int {
 		return upper
 	}
 	return value
+}
+
+func (m Model) renderUnderstandingSnapshot() string {
+	if m.understanding.Status == "" {
+		return ""
+	}
+	s := m.t()
+	stats := m.understanding.Stats
+	lines := []string{
+		metricLine(s.UnderstandingLabelStatus, m.understanding.Status),
+		metricLine(s.UnderstandingLabelSource, m.understanding.Source),
+		metricLine(s.UnderstandingLabelModules, fmt.Sprintf("%d", stats.Modules)),
+		metricLine(s.UnderstandingLabelFlows, fmt.Sprintf("%d", stats.Flows)),
+		metricLine(s.UnderstandingLabelQuestions, fmt.Sprintf("%d", stats.OpenQuestions)),
+		metricLine(s.UnderstandingLabelEvidence, fmt.Sprintf("%d", stats.Evidence)),
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderSpecExplorer() string {
+	s := m.t()
+
+	// Build section tabs
+	tabs := []struct {
+		key   SpecSection
+		label string
+	}{
+		{SpecSectionOverview, s.SpecSectionOverview},
+		{SpecSectionModules, s.SpecSectionModules},
+		{SpecSectionFlows, s.SpecSectionFlows},
+		{SpecSectionEvidence, s.SpecSectionEvidence},
+		{SpecSectionQuestions, s.SpecSectionQuestions},
+		{SpecSectionModuleMap, s.SpecSectionModuleMap},
+	}
+
+	tabLine := ""
+	for _, tab := range tabs {
+		if tab.key == m.specSection {
+			tabLine += styles.text.Render("["+tab.label+"]") + "  "
+		} else {
+			tabLine += styles.muted.Render(tab.label) + "  "
+		}
+	}
+
+	// Build content based on active section
+	content := ""
+	switch m.specSection {
+	case SpecSectionOverview:
+		if len(m.understanding.Overview) > 0 {
+			content = bulletLines(m.understanding.Overview)
+		} else {
+			content = styles.muted.Render(s.SpecSectionEmpty)
+		}
+	case SpecSectionModules:
+		content = formatModules(s, m.projectSpec.ImplementationShape.CoreModules)
+	case SpecSectionFlows:
+		content = formatFlows(s, m.projectSpec.ImplementationShape.KeyFlows)
+	case SpecSectionEvidence:
+		if len(m.understanding.Evidence) > 0 {
+			content = bulletLines(m.understanding.Evidence)
+		} else {
+			content = styles.muted.Render(s.SpecSectionEmpty)
+		}
+	case SpecSectionQuestions:
+		if len(m.understanding.OpenQuestions) > 0 {
+			content = bulletLines(m.understanding.OpenQuestions)
+		} else {
+			content = styles.muted.Render(s.SpecSectionEmpty)
+		}
+	case SpecSectionModuleMap:
+		if len(m.understanding.ModuleMap) > 0 {
+			content = bulletLines(m.understanding.ModuleMap)
+		} else {
+			content = styles.muted.Render(s.SpecMapFallback)
+		}
+	}
+
+	return strings.Join([]string{tabLine, "", content}, "\n")
 }

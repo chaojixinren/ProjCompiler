@@ -89,6 +89,11 @@ type CodeSnippet struct {
 }
 
 type Constraint struct {
-	Text   string
-	Signal FactSignal
+	ID           string
+	Text         string
+	Category     string
+	Scope        string
+	ConfidenceID string
+	EvidenceIDs  []string
+	Signal       FactSignal
 }

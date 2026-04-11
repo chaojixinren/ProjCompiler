@@ -1,5 +1,7 @@
 package spec
 
+import "time"
+
 type ProjectSpec struct {
 	Goal                string
 	TechProfile         TechProfile
@@ -8,6 +10,7 @@ type ProjectSpec struct {
 	AcceptanceChecks    []AcceptanceCheck
 	OpenQuestions       []OpenQuestion
 	EvidenceLog         []EvidenceItem
+	Understanding       UnderstandingSpec
 }
 
 type TechProfile struct {
@@ -25,15 +28,24 @@ type ImplementationShape struct {
 }
 
 type ModuleSpec struct {
+	ID             string
 	Name           string
 	Responsibility string
+	SymbolIDs      []string
+	EvidenceIDs    []string
 	Signal         FactSignal
 }
 
 type KeyFlow struct {
-	Name    string
-	Summary string
-	Signal  FactSignal
+	ID            string
+	Name          string
+	Summary       string
+	Trigger       string
+	EntrySymbolID string
+	StepSymbolIDs []string
+	RelationIDs   []string
+	EvidenceIDs   []string
+	Signal        FactSignal
 }
 
 type AcceptanceCheck struct {
@@ -42,13 +54,187 @@ type AcceptanceCheck struct {
 }
 
 type OpenQuestion struct {
-	Question string
-	Blocking bool
-	Signal   FactSignal
+	ID               string
+	Question         string
+	Category         string
+	Blocking         bool
+	Reason           string
+	MissingEntityIDs []string
+	EvidenceIDs      []string
+	Signal           FactSignal
 }
 
 type EvidenceItem struct {
-	Label  string
-	Source string
-	Signal FactSignal
+	ID          string
+	Label       string
+	Source      string
+	EvidenceIDs []string
+	Signal      FactSignal
+}
+
+type UnderstandingSpec struct {
+	SchemaVersion string
+	Repo          RepoIdentity
+	Snapshot      SnapshotMeta
+	Files         []UnderstandingFile
+	Documents     []UnderstandingDocument
+	Symbols       []UnderstandingSymbol
+	Relations     []UnderstandingRelation
+	Flows         []UnderstandingFlow
+	Evidences     []UnderstandingEvidence
+	Confidences   []UnderstandingConfidence
+	Stats         UnderstandingStats
+}
+
+type RepoIdentity struct {
+	RootPath string
+	RepoName string
+	VCSRef   string
+}
+
+type SnapshotMeta struct {
+	RunID          string
+	BuiltAt        time.Time
+	ScannerVersion string
+	ParserVersion  string
+	Mode           string
+}
+
+type UnderstandingStats struct {
+	FileCount       int
+	SymbolCount     int
+	RelationCount   int
+	FlowCount       int
+	QuestionCount   int
+	ConstraintCount int
+}
+
+type UnderstandingFileRole string
+
+const (
+	UnderstandingFileRoleSource    UnderstandingFileRole = "source"
+	UnderstandingFileRoleDoc       UnderstandingFileRole = "doc"
+	UnderstandingFileRoleManifest  UnderstandingFileRole = "manifest"
+	UnderstandingFileRoleConfig    UnderstandingFileRole = "config"
+	UnderstandingFileRoleTest      UnderstandingFileRole = "test"
+	UnderstandingFileRoleGenerated UnderstandingFileRole = "generated"
+	UnderstandingFileRoleOther     UnderstandingFileRole = "other"
+)
+
+type UnderstandingParseStatus string
+
+const (
+	UnderstandingParseStatusParsed  UnderstandingParseStatus = "parsed"
+	UnderstandingParseStatusSkipped UnderstandingParseStatus = "skipped"
+	UnderstandingParseStatusFailed  UnderstandingParseStatus = "failed"
+)
+
+type UnderstandingFile struct {
+	ID          string
+	Path        string
+	AbsPath     string
+	Language    string
+	Role        UnderstandingFileRole
+	SizeBytes   int64
+	ContentHash string
+	ParseStatus UnderstandingParseStatus
+	SkipReason  string
+	EvidenceIDs []string
+}
+
+type UnderstandingDocument struct {
+	ID            string
+	FileID        string
+	Title         string
+	Summary       string
+	ConstraintIDs []string
+	EvidenceIDs   []string
+}
+
+type UnderstandingSymbolKind string
+
+const (
+	UnderstandingSymbolKindPackage  UnderstandingSymbolKind = "package"
+	UnderstandingSymbolKindFunction UnderstandingSymbolKind = "function"
+	UnderstandingSymbolKindMethod   UnderstandingSymbolKind = "method"
+	UnderstandingSymbolKindImport   UnderstandingSymbolKind = "import"
+	UnderstandingSymbolKindModule   UnderstandingSymbolKind = "module"
+)
+
+type Span struct {
+	StartByte uint32
+	EndByte   uint32
+	StartLine int
+	EndLine   int
+	StartCol  int
+	EndCol    int
+}
+
+type UnderstandingSymbol struct {
+	ID            string
+	FileID        string
+	Kind          UnderstandingSymbolKind
+	Name          string
+	QualifiedName string
+	PackageName   string
+	IsEntrypoint  bool
+	Span          Span
+	SourceCapture string
+	EvidenceIDs   []string
+}
+
+type UnderstandingRelationType string
+
+const (
+	UnderstandingRelationContains  UnderstandingRelationType = "contains"
+	UnderstandingRelationImports   UnderstandingRelationType = "imports"
+	UnderstandingRelationCalls     UnderstandingRelationType = "calls"
+	UnderstandingRelationReadsEnv  UnderstandingRelationType = "reads_env"
+	UnderstandingRelationEntryFlow UnderstandingRelationType = "entry_flow"
+)
+
+type UnderstandingRelation struct {
+	ID           string
+	Type         UnderstandingRelationType
+	FromID       string
+	ToID         string
+	ToRef        string
+	Resolver     string
+	ConfidenceID string
+	EvidenceIDs  []string
+}
+
+type UnderstandingFlow struct {
+	ID            string
+	Name          string
+	Trigger       string
+	EntrySymbolID string
+	StepSymbolIDs []string
+	EvidenceIDs   []string
+}
+
+type UnderstandingEvidence struct {
+	ID          string
+	SourceKind  string
+	Path        string
+	Span        Span
+	Extractor   string
+	SnippetHash string
+	Note        string
+}
+
+type UnderstandingConfidenceBand string
+
+const (
+	UnderstandingConfidenceBandHigh   UnderstandingConfidenceBand = "high"
+	UnderstandingConfidenceBandMedium UnderstandingConfidenceBand = "medium"
+	UnderstandingConfidenceBandLow    UnderstandingConfidenceBand = "low"
+)
+
+type UnderstandingConfidence struct {
+	ID         string
+	Kind       string
+	Score      float64
+	Band       UnderstandingConfidenceBand
+	ReasonCode string
 }

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 
 	"projcompiler/internal/spec"
 )
@@ -29,14 +29,21 @@ type Model struct {
 	width  int
 	height int
 
-	loading          bool
-	compilingPrompt  bool
-	exporting        bool
-	promptScroll     int
-	specScroll       int
-	lastError        string
-	lastExportedPath string
-	logs             []string
+	loading              bool
+	scanCompleted        bool
+	understandingLoading bool
+	compilingPrompt      bool
+	exporting            bool
+	promptScroll         int
+	promptXScroll        int
+	promptScrollMode     ScrollMode
+	specPageScroll       int
+	specSection          SpecSection
+	cachedSpecLineCount  int
+	lastError            string
+	lastExportedPath     string
+	logs                 []string
+	understanding        UnderstandingSummary
 
 	// Config editing state
 	configInputs     []textinput.Model
@@ -65,6 +72,8 @@ func NewModel(services Services, options ...Option) Model {
 		pathInput:        newPathInput(),
 		configInputs:     newConfigInputs("", "", ""),
 		configFocusIndex: 0,
+		specSection:      SpecSectionOverview,
+		promptScrollMode: ScrollModeWrap,
 	}
 	model.appendLog(model.t().LogReady)
 	return model
@@ -135,7 +144,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if typed.RunID != m.activeRunID {
 			return m, nil
 		}
+		m.state = StateScanning
 		m.loading = true
+		m.scanCompleted = false
 		m.lastError = ""
 		m.appendLog(fmt.Sprintf(m.t().LogScanningFmt, typed.Path))
 		return m, nil
@@ -149,13 +160,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.facts = typed.Facts
+		m.scanCompleted = true
 		m.appendLog(fmt.Sprintf(m.t().LogScanDoneFmt,
 			len(typed.Facts.Docs), len(typed.Facts.EntryPoints)))
+		return m, startUnderstandingCmd(m.activeRunID, m.facts, m.services.UnderstandingBuilder)
+	case understandingStartedMsg:
+		if typed.RunID != m.activeRunID {
+			return m, nil
+		}
+		m.state = StateScanning
+		m.loading = true
+		m.understandingLoading = true
+		m.lastError = ""
+		m.appendLog(m.t().LogUnderstandingStart)
+		return m, nil
+	case understandingFinishedMsg:
+		if typed.RunID != m.activeRunID {
+			return m, nil
+		}
+		m.state = StateScanning
+		m.loading = false
+		m.understandingLoading = false
+		m.understanding = typed.Summary
+		m.cachedSpecLineCount = -1
+		m.specSection = SpecSectionOverview
+		if typed.Err != nil {
+			m.appendLog(fmt.Sprintf(m.t().LogUnderstandingFailedFmt, typed.Err))
+			if typed.UsedFallback {
+				m.appendLog(m.t().LogUnderstandingFallback)
+			}
+		} else if typed.UsedFallback {
+			m.appendLog(m.t().LogUnderstandingFallback)
+		} else {
+			m.appendLog(m.t().LogUnderstandingReady)
+		}
 		return m, startBuildSpecCmd(m.activeRunID, m.facts, m.services.SpecBuilder)
 	case specStartedMsg:
 		if typed.RunID != m.activeRunID {
 			return m, nil
 		}
+		m.state = StateScanning
 		m.loading = true
 		m.lastError = ""
 		m.appendLog(m.t().LogBuildingSpec)
@@ -171,6 +215,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.projectSpec = typed.ProjectSpec
 		m.state = StateSpecSummary
+		m.cachedSpecLineCount = -1
 		m.appendLog(m.t().LogSpecReady)
 		return m, nil
 	case promptStartedMsg:
@@ -319,26 +364,43 @@ func (m Model) updateScanning(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateSpecSummary(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "left", "h", "shift+tab":
+		m.specSection = m.prevSpecSection()
+		return m, nil
+	case "right", "l", "tab":
+		m.specSection = m.nextSpecSection()
+		return m, nil
 	case "up", "k":
-		if m.specScroll > 0 {
-			m.specScroll--
+		if m.specPageScroll > 0 {
+			m.specPageScroll--
 		}
 		return m, nil
 	case "down", "j":
-		if m.specScroll < m.maxSpecScroll() {
-			m.specScroll++
+		if m.cachedSpecLineCount < 0 {
+			// Compute and cache line count on first scroll
+			content := m.renderSpecSummaryContent()
+			m.cachedSpecLineCount = strings.Count(content, "\n") + 1
+		}
+		maxScroll := max(0, m.cachedSpecLineCount-m.specPageSize())
+		if m.specPageScroll < maxScroll {
+			m.specPageScroll++
 		}
 		return m, nil
 	case "pgup":
-		m.specScroll -= m.specPageSize()
-		if m.specScroll < 0 {
-			m.specScroll = 0
+		m.specPageScroll -= m.specPageSize()
+		if m.specPageScroll < 0 {
+			m.specPageScroll = 0
 		}
 		return m, nil
 	case "pgdown":
-		m.specScroll += m.specPageSize()
-		if ms := m.maxSpecScroll(); m.specScroll > ms {
-			m.specScroll = ms
+		if m.cachedSpecLineCount < 0 {
+			content := m.renderSpecSummaryContent()
+			m.cachedSpecLineCount = strings.Count(content, "\n") + 1
+		}
+		maxScroll := max(0, m.cachedSpecLineCount-m.specPageSize())
+		m.specPageScroll += m.specPageSize()
+		if m.specPageScroll > maxScroll {
+			m.specPageScroll = maxScroll
 		}
 		return m, nil
 	case "enter", "g":
@@ -380,6 +442,33 @@ func (m Model) updatePromptPreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.promptScroll = maxScroll
 		}
 		return m, nil
+	case "left", "h":
+		if m.promptScrollMode == ScrollModeHorizontal && m.promptXScroll > 0 {
+			m.promptXScroll -= m.promptXScrollStep()
+			if m.promptXScroll < 0 {
+				m.promptXScroll = 0
+			}
+		}
+		return m, nil
+	case "right", "l":
+		if m.promptScrollMode == ScrollModeHorizontal {
+			maxXScroll := m.maxPromptXScroll()
+			if m.promptXScroll < maxXScroll {
+				m.promptXScroll += m.promptXScrollStep()
+				if m.promptXScroll > maxXScroll {
+					m.promptXScroll = maxXScroll
+				}
+			}
+		}
+		return m, nil
+	case "w":
+		if m.promptScrollMode == ScrollModeWrap {
+			m.promptScrollMode = ScrollModeHorizontal
+		} else {
+			m.promptScrollMode = ScrollModeWrap
+		}
+		m.promptXScroll = 0
+		return m, nil
 	case "e":
 		if !m.bundle.Ready() || m.compilingPrompt || m.exporting {
 			return m, nil
@@ -390,6 +479,7 @@ func (m Model) updatePromptPreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.state = StateSpecSummary
+		m.cachedSpecLineCount = -1
 		m.lastError = ""
 		return m, nil
 	default:
@@ -447,12 +537,19 @@ func (m *Model) resetRunState() {
 	m.projectSpec = spec.ProjectSpec{}
 	m.bundle = spec.PromptBundle{}
 	m.promptScroll = 0
-	m.specScroll = 0
+	m.promptXScroll = 0
+	m.promptScrollMode = ScrollModeWrap
+	m.specPageScroll = 0
+	m.specSection = SpecSectionOverview
+	m.cachedSpecLineCount = -1
 	m.lastError = ""
 	m.lastExportedPath = ""
 	m.loading = false
+	m.scanCompleted = false
+	m.understandingLoading = false
 	m.compilingPrompt = false
 	m.exporting = false
+	m.understanding = UnderstandingSummary{}
 }
 
 func (m *Model) resetForNewRun() {
@@ -480,4 +577,68 @@ func (m *Model) appendLog(line string) {
 	if len(m.logs) > limit {
 		m.logs = m.logs[len(m.logs)-limit:]
 	}
+}
+
+func (m Model) nextSpecSection() SpecSection {
+	switch m.specSection {
+	case SpecSectionOverview:
+		return SpecSectionModules
+	case SpecSectionModules:
+		return SpecSectionFlows
+	case SpecSectionFlows:
+		return SpecSectionEvidence
+	case SpecSectionEvidence:
+		return SpecSectionQuestions
+	case SpecSectionQuestions:
+		return SpecSectionModuleMap
+	default:
+		return SpecSectionOverview
+	}
+}
+
+func (m Model) prevSpecSection() SpecSection {
+	switch m.specSection {
+	case SpecSectionOverview:
+		return SpecSectionModuleMap
+	case SpecSectionModules:
+		return SpecSectionOverview
+	case SpecSectionFlows:
+		return SpecSectionModules
+	case SpecSectionEvidence:
+		return SpecSectionFlows
+	case SpecSectionQuestions:
+		return SpecSectionEvidence
+	default:
+		return SpecSectionQuestions
+	}
+}
+
+func (m Model) promptXScrollStep() int {
+	return 10
+}
+
+func (m Model) maxPromptXScroll() int {
+	if m.bundle.PromptText == "" {
+		return 0
+	}
+	lines := strings.Split(m.bundle.PromptText, "\n")
+	maxLen := 0
+	for _, line := range lines {
+		if runeLen := len([]rune(line)); runeLen > maxLen {
+			maxLen = runeLen
+		}
+	}
+	// The max X scroll is the maximum line length minus the visible width
+	codeInnerWidth := m.promptCodeInnerWidth()
+	return max(0, maxLen-codeInnerWidth)
+}
+
+func (m Model) promptCodeInnerWidth() int {
+	codeBoxWidth := m.promptCodeBoxWidth()
+	return max(10, codeBoxWidth-7) // subtract line number column width
+}
+
+func (m Model) promptCodeBoxWidth() int {
+	_, rw := m.splitWidths()
+	return m.embeddedBoxWidth(styles.panelEmphasis, styles.codeBox, rw)
 }

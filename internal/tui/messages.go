@@ -17,6 +17,17 @@ type specStartedMsg struct {
 	RunID int
 }
 
+type understandingStartedMsg struct {
+	RunID int
+}
+
+type understandingFinishedMsg struct {
+	RunID        int
+	Summary      UnderstandingSummary
+	Err          error
+	UsedFallback bool
+}
+
 type specFinishedMsg struct {
 	RunID       int
 	ProjectSpec spec.ProjectSpec

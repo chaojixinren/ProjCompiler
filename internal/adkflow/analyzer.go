@@ -11,17 +11,20 @@ import (
 	"projcompiler/internal/app"
 	"projcompiler/internal/config"
 	"projcompiler/internal/spec"
+	"projcompiler/internal/understanding/pipeline"
 )
 
 type SpecBuilder struct {
-	client CompletionClient
+	client               CompletionClient
+	understandingBuilder *pipeline.Builder
 }
 
 var _ app.SpecBuilder = (*SpecBuilder)(nil)
 
 func NewSpecBuilder(cfg config.Config) *SpecBuilder {
 	return &SpecBuilder{
-		client: NewCompletionClient(cfg),
+		client:               NewCompletionClient(cfg),
+		understandingBuilder: pipeline.NewBuilder(),
 	}
 }
 
@@ -30,14 +33,57 @@ func (b *SpecBuilder) BuildProjectSpec(ctx context.Context, facts spec.RepoFacts
 		return spec.ProjectSpec{}, err
 	}
 
-	baseline := buildFallbackProjectSpec(facts)
+	fallback := buildFallbackProjectSpec(facts)
+	baseline := fallback
+	understandingJSON := ""
+
+	if b.understandingBuilder != nil {
+		out, buildErr := b.understandingBuilder.Build(ctx, pipeline.BuildRequest{
+			RootPath: facts.RootPath,
+			Facts:    &facts,
+		})
+		if buildErr != nil {
+			baseline.EvidenceLog = append(baseline.EvidenceLog, spec.EvidenceItem{
+				Label:  "understanding_pipeline_fallback",
+				Source: "Unified understanding pipeline unavailable: " + buildErr.Error(),
+				Signal: spec.InferredSignal(0.4, "Spec synthesis continued with deterministic repository facts"),
+			})
+		} else {
+			baseline = mergeProjectSpec(fallback, out.ProjectSpec)
+			baseline.EvidenceLog = append(baseline.EvidenceLog, spec.EvidenceItem{
+				Label:  "understanding_pipeline_embedded",
+				Source: "Unified understanding pipeline baseline was merged before analyzer refinement",
+				Signal: spec.ObservedSignal("SpecBuilder executed internal understanding pipeline before analyzer refinement"),
+			})
+			understandingJSON, _ = buildUnderstandingJSONFromSpec(baseline.Understanding)
+		}
+	}
+
+	if understandingJSON == "" {
+		snapshotJSON, err := buildUnderstandingJSON(facts)
+		if err != nil {
+			baseline.EvidenceLog = append(baseline.EvidenceLog, spec.EvidenceItem{
+				Label:  "understanding_snapshot_unavailable",
+				Source: "Understanding snapshot unavailable: " + err.Error(),
+				Signal: spec.InferredSignal(0.4, "Analyzer context continued with repository facts only"),
+			})
+		} else {
+			understandingJSON = snapshotJSON
+			baseline.EvidenceLog = append(baseline.EvidenceLog, spec.EvidenceItem{
+				Label:  "understanding_snapshot_debug",
+				Source: "Fallback understanding snapshot was included for analyzer context (debug only)",
+				Signal: spec.InferredSignal(0.5, "Analyzer used a lightweight understanding snapshot as a debug fallback"),
+			})
+		}
+	}
+
 	if b.client == nil {
 		return baseline, nil
 	}
 
 	result, err := b.client.Complete(ctx, []Message{
 		{Role: "system", Content: analyzerSystemPrompt()},
-		{Role: "user", Content: analyzerUserPrompt(facts)},
+		{Role: "user", Content: analyzerUserPrompt(facts, understandingJSON)},
 	}, 0.1)
 	if err != nil {
 		baseline.EvidenceLog = append(baseline.EvidenceLog, spec.EvidenceItem{
@@ -92,15 +138,31 @@ Return JSON only with this shape:
 `)
 }
 
-func analyzerUserPrompt(facts spec.RepoFacts) string {
+func analyzerUserPrompt(facts spec.RepoFacts, understandingJSON string) string {
 	data, err := json.MarshalIndent(facts, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("Repository facts could not be JSON-encoded cleanly: %v", err)
 	}
 
+	if understandingJSON == "" {
+		return strings.TrimSpace(`
+Project facts:
+` + string(data) + `
+
+Write the smallest useful project spec.
+Use the same pruning rule as ClaudeCode /init:
+- keep only details the model is likely to get wrong without help
+- drop generic engineering advice
+- prefer short, concrete statements over cataloging the whole repository
+`)
+	}
+
 	return strings.TrimSpace(`
 Project facts:
 ` + string(data) + `
+
+Understanding snapshot:
+` + understandingJSON + `
 
 Write the smallest useful project spec.
 Use the same pruning rule as ClaudeCode /init:
@@ -497,7 +559,23 @@ func mergeProjectSpec(baseline, llmSpec spec.ProjectSpec) spec.ProjectSpec {
 	if len(llmSpec.EvidenceLog) > 0 {
 		merged.EvidenceLog = append(merged.EvidenceLog, llmSpec.EvidenceLog...)
 	}
+	if !isUnderstandingSpecEmpty(merged.Understanding) && isUnderstandingSpecEmpty(llmSpec.Understanding) {
+		// Keep baseline's rich understanding
+	} else if !isUnderstandingSpecEmpty(llmSpec.Understanding) {
+		merged.Understanding = llmSpec.Understanding
+	}
 	return merged
+}
+
+func isUnderstandingSpecEmpty(value spec.UnderstandingSpec) bool {
+	return strings.TrimSpace(value.SchemaVersion) == "" &&
+		len(value.Files) == 0 &&
+		len(value.Documents) == 0 &&
+		len(value.Symbols) == 0 &&
+		len(value.Relations) == 0 &&
+		len(value.Flows) == 0 &&
+		len(value.Evidences) == 0 &&
+		len(value.Confidences) == 0
 }
 
 func mergeTechProfile(base, override spec.TechProfile) spec.TechProfile {

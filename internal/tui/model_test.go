@@ -118,3 +118,73 @@ func TestModelSpecSummaryEnterTransitionsToPromptPreviewStart(t *testing.T) {
 		t.Fatalf("expected state to remain spec summary until start message is processed, got %q", next.state)
 	}
 }
+
+func TestModelUnderstandingMessagesTransitionStateAndTriggerSpecBuild(t *testing.T) {
+	model := NewModel(Services{})
+	model.activeRunID = 7
+	model.state = StateScanning
+	model.facts = spec.RepoFacts{
+		RootPath: "/tmp/repo",
+		Docs:     []spec.DocumentFact{{Path: "README.md"}},
+	}
+
+	updated, _ := model.Update(understandingStartedMsg{RunID: 7})
+	started := updated.(Model)
+	if started.state != StateScanning {
+		t.Fatalf("state = %q, want %q", started.state, StateScanning)
+	}
+	if !started.understandingLoading {
+		t.Fatalf("expected understandingLoading=true after start")
+	}
+
+	updated, cmd := started.Update(understandingFinishedMsg{
+		RunID: 7,
+		Summary: UnderstandingSummary{
+			Status:   "ready",
+			Source:   "builder:test",
+			Overview: []string{"summary"},
+		},
+	})
+	finished := updated.(Model)
+	if cmd == nil {
+		t.Fatalf("expected understanding finish to trigger spec build command")
+	}
+	if finished.state != StateScanning {
+		t.Fatalf("state = %q, want %q", finished.state, StateScanning)
+	}
+	if finished.understandingLoading {
+		t.Fatalf("expected understandingLoading=false after finish")
+	}
+	if got := finished.understanding.Source; got != "builder:test" {
+		t.Fatalf("understanding.Source = %q, want %q", got, "builder:test")
+	}
+}
+
+func TestModelSpecSummaryCanSwitchSpecSections(t *testing.T) {
+	model := NewModel(Services{})
+	model.state = StateSpecSummary
+	model.understanding = UnderstandingSummary{
+		Overview:      []string{"overview"},
+		OpenQuestions: []string{"q1"},
+		Evidence:      []string{"e1"},
+		ModuleMap:     []string{"a -> b"},
+	}
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	next := updated.(Model)
+	if next.state != StateSpecSummary {
+		t.Fatalf("state = %q, want %q", next.state, StateSpecSummary)
+	}
+	if next.specSection != SpecSectionModules {
+		t.Fatalf("section = %q, want %q", next.specSection, SpecSectionModules)
+	}
+
+	updated, _ = next.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	next = updated.(Model)
+	if next.state != StateSpecSummary {
+		t.Fatalf("state = %q, want %q", next.state, StateSpecSummary)
+	}
+	if next.specSection != SpecSectionOverview {
+		t.Fatalf("section = %q, want %q", next.specSection, SpecSectionOverview)
+	}
+}

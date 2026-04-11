@@ -50,6 +50,10 @@ type SpecBuilder interface {
 	BuildProjectSpec(ctx context.Context, facts spec.RepoFacts) (spec.ProjectSpec, error)
 }
 
+type UnderstandingBuilder interface {
+	BuildUnderstanding(ctx context.Context, facts spec.RepoFacts) (UnderstandingSummary, error)
+}
+
 type PromptCompiler interface {
 	CompilePrompt(ctx context.Context, projectSpec spec.ProjectSpec) (spec.PromptBundle, error)
 }
@@ -59,11 +63,48 @@ type Exporter interface {
 }
 
 type Services struct {
-	Scanner        Scanner
-	SpecBuilder    SpecBuilder
-	PromptCompiler PromptCompiler
-	Exporter       Exporter
-	Config         *config.Config
+	Scanner              Scanner
+	UnderstandingBuilder UnderstandingBuilder
+	SpecBuilder          SpecBuilder
+	PromptCompiler       PromptCompiler
+	Exporter             Exporter
+	Config               *config.Config
+}
+
+type SpecSection string
+
+const (
+	SpecSectionOverview  SpecSection = "overview"
+	SpecSectionModules   SpecSection = "modules"
+	SpecSectionFlows     SpecSection = "flows"
+	SpecSectionEvidence  SpecSection = "evidence"
+	SpecSectionQuestions SpecSection = "questions"
+	SpecSectionModuleMap SpecSection = "module_map"
+)
+
+type ScrollMode string
+
+const (
+	ScrollModeWrap       ScrollMode = "wrap"
+	ScrollModeHorizontal ScrollMode = "horizontal"
+)
+
+type UnderstandingStats struct {
+	Modules       int
+	Flows         int
+	OpenQuestions int
+	Evidence      int
+}
+
+type UnderstandingSummary struct {
+	Status        string
+	Source        string
+	GeneratedAt   string
+	Overview      []string
+	OpenQuestions []string
+	Evidence      []string
+	ModuleMap     []string
+	Stats         UnderstandingStats
 }
 
 type Config struct {

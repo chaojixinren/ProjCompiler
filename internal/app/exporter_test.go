@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"projcompiler/internal/config"
@@ -99,5 +100,37 @@ func TestFileExporterHonorsCancelledContext(t *testing.T) {
 	_, err := exporter.ExportPrompt(ctx, spec.PromptBundle{PromptText: "Build the project"}, "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestFileExporterExportSpecDebugWritesJSONPayload(t *testing.T) {
+	dir := t.TempDir()
+	exporter := NewFileExporter(config.Config{
+		Paths: config.Paths{WorkingDir: dir},
+		Output: config.OutputConfig{
+			PromptFile: "build/prompt.txt",
+		},
+	})
+
+	path, err := exporter.ExportSpecDebug(context.Background(), spec.ProjectSpec{
+		Goal: "Build a local CLI",
+	}, "")
+	if err != nil {
+		t.Fatalf("ExportSpecDebug returned error: %v", err)
+	}
+	if got, want := path, filepath.Join(dir, "build", "spec.debug.json"); got != want {
+		t.Fatalf("spec debug path = %q, want %q", got, want)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read spec debug file: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `"schema_version": "project_spec_debug_v1"`) {
+		t.Fatalf("missing schema_version in spec debug payload: %q", text)
+	}
+	if !strings.Contains(text, `"Goal": "Build a local CLI"`) {
+		t.Fatalf("missing project spec content in debug payload: %q", text)
 	}
 }

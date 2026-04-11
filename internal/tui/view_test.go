@@ -108,3 +108,59 @@ func TestFormatHelpersReturnFallbacksForEmptyValues(t *testing.T) {
 		t.Fatalf("valueOrFallback returned %q", got)
 	}
 }
+
+func TestRenderSpecSummaryShowsSpecExplorerSectionsAndContent(t *testing.T) {
+	model := NewModel(Services{})
+	model.state = StateSpecSummary
+	model.height = 24
+	model.specSection = SpecSectionOverview
+	model.understanding = UnderstandingSummary{
+		Status:        "ready",
+		Source:        "builder:test",
+		Overview:      []string{"overview line"},
+		OpenQuestions: []string{"question line"},
+		Evidence:      []string{"evidence line"},
+		ModuleMap:     []string{"api -> service"},
+		Stats: UnderstandingStats{
+			Modules:       1,
+			Flows:         1,
+			OpenQuestions: 1,
+			Evidence:      1,
+		},
+	}
+
+	view := model.renderSpecSummaryContent()
+	if !strings.Contains(view, "Spec Explorer") {
+		t.Fatalf("expected spec explorer panel title, got %q", view)
+	}
+	if !strings.Contains(view, "Overview") || !strings.Contains(view, "Modules") || !strings.Contains(view, "Questions") || !strings.Contains(view, "Module Map") {
+		t.Fatalf("expected section tabs, got %q", view)
+	}
+	if !strings.Contains(view, "overview line") {
+		t.Fatalf("expected overview content, got %q", view)
+	}
+}
+
+func TestRenderSpecSummaryIncludesUnderstandingSnapshotWhenPresent(t *testing.T) {
+	model := NewModel(Services{})
+	model.state = StateSpecSummary
+	model.understanding = UnderstandingSummary{
+		Status:   "ready",
+		Source:   "fallback:facts",
+		Overview: []string{"summary"},
+		Stats: UnderstandingStats{
+			Modules:       2,
+			Flows:         3,
+			OpenQuestions: 1,
+			Evidence:      4,
+		},
+	}
+
+	view := model.renderSpecSummaryContent()
+	if !strings.Contains(view, "Understanding") {
+		t.Fatalf("expected understanding panel, got %q", view)
+	}
+	if !strings.Contains(view, "fallback:facts") {
+		t.Fatalf("expected understanding source detail, got %q", view)
+	}
+}

@@ -26,6 +26,7 @@ type PromptCompiler interface {
 
 type Exporter interface {
 	ExportPrompt(ctx context.Context, bundle spec.PromptBundle, outputPath string) (string, error)
+	ExportSpecDebug(ctx context.Context, projectSpec spec.ProjectSpec, outputPath string) (string, error)
 }
 
 type AgentAssembler interface {

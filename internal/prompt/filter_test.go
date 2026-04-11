@@ -102,3 +102,37 @@ func TestFilterPromptSectionsDeduplicatesConstraintAndShapeLines(t *testing.T) {
 		t.Fatalf("expected deduplicated implementation line, got %q", sections[2].Content)
 	}
 }
+
+func TestFilterPromptSectionsSkipsLowConfidenceInferredItems(t *testing.T) {
+	projectSpec := spec.ProjectSpec{
+		Goal: "Build a deterministic CLI.",
+		CriticalConstraints: []spec.Constraint{
+			{Text: "Do not emit tool-specific command wrappers", Signal: spec.InferredSignal(0.9, "high confidence")},
+			{Text: "Expose a web dashboard", Signal: spec.InferredSignal(0.2, "weak guess")},
+		},
+		ImplementationShape: spec.ImplementationShape{
+			CoreModules: []spec.ModuleSpec{
+				{Name: "scanner", Responsibility: "Collect repository facts", Signal: spec.ObservedSignal("direct code evidence")},
+				{Name: "dashboard", Responsibility: "Serve browser UI", Signal: spec.InferredSignal(0.2, "weak guess")},
+			},
+		},
+		AcceptanceChecks: []spec.AcceptanceCheck{
+			{Description: "Emit prompt.txt", Signal: spec.ObservedSignal("deterministic requirement")},
+			{Description: "Render dashboard", Signal: spec.MissingSignal("no supporting evidence")},
+		},
+	}
+
+	sections := filterPromptSections(projectSpec)
+	if len(sections) != 4 {
+		t.Fatalf("expected 4 sections, got %d", len(sections))
+	}
+	if strings.Contains(sections[1].Content, "Expose a web dashboard.") {
+		t.Fatalf("expected low-confidence inferred constraint to be pruned, got %q", sections[1].Content)
+	}
+	if strings.Contains(sections[2].Content, "dashboard: Serve browser UI.") {
+		t.Fatalf("expected low-confidence inferred module to be pruned, got %q", sections[2].Content)
+	}
+	if strings.Contains(sections[3].Content, "Render dashboard.") {
+		t.Fatalf("expected missing-signal acceptance check to be pruned, got %q", sections[3].Content)
+	}
+}
